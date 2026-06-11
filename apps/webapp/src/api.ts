@@ -134,13 +134,27 @@ export type Settings = {
     freeDeliveryFromKg: number;
 };
 
-export function saveDeliveryTitle(title: string) {
+export async function updateSettings(payload: Partial<Pick<Settings, "deliveryDays" | "deliveryTitle">>) {
+  const response = await fetch(`${apiUrl}/api/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error ?? "Не удалось сохранить настройки");
+  return {
+    ...fallbackSettings,
+    ...data
+  } as Settings;
+}
+
+export function saveDeliveryTitleLocal(title: string) {
   const cleanTitle = title.trim() || "Ближайшие дни доставки";
   localStorage.setItem(localDeliveryTitleKey, cleanTitle);
   return cleanTitle;
 }
 
-export function saveDeliveryDays(days: string[]) {
+export function saveDeliveryDaysLocal(days: string[]) {
   const uniqueDays = weekdayOptions.filter((day) => days.includes(day));
   localStorage.setItem(localDeliveryDaysKey, JSON.stringify(uniqueDays));
   return uniqueDays;
@@ -193,56 +207,34 @@ export async function postOrder(payload: unknown) {
 }
 
 export async function createProduct(payload: unknown) {
-  try {
-    const response = await fetch(`${apiUrl}/api/admin/products`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? "Не удалось добавить товар");
-    return data as Promise<Product>;
-  } catch {
-    const product = normalizeLocalProduct(payload, crypto.randomUUID());
-    const products = [...loadLocalProducts(), product];
-    saveLocalProducts(products);
-    return product;
-  }
+  const response = await fetch(`${apiUrl}/api/admin/products`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error ?? "Не удалось добавить товар");
+  return data as Promise<Product>;
 }
 
 export async function updateProduct(productId: string, payload: unknown) {
-  try {
-    const response = await fetch(`${apiUrl}/api/admin/products/${productId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? "Не удалось обновить товар");
-    return data as Promise<Product>;
-  } catch {
-    const products = loadLocalProducts();
-    const current = products.find((product) => product.id === productId);
-    const product = { ...current, ...normalizeLocalProduct(payload, productId) } as Product;
-    saveLocalProducts(products.map((item) => (item.id === productId ? product : item)));
-    return product;
-  }
+  const response = await fetch(`${apiUrl}/api/admin/products/${productId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error ?? "Не удалось обновить товар");
+  return data as Promise<Product>;
 }
 
 export async function deactivateProduct(productId: string) {
-  try {
-    const response = await fetch(`${apiUrl}/api/admin/products/${productId}/deactivate`, {
-      method: "PATCH"
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? "Не удалось скрыть товар");
-    return data as Promise<Product>;
-  } catch {
-    const products = loadLocalProducts();
-    const product = products.find((item) => item.id === productId) ?? products[0];
-    saveLocalProducts(products.filter((item) => item.id !== productId));
-    return product;
-  }
+  const response = await fetch(`${apiUrl}/api/admin/products/${productId}/deactivate`, {
+    method: "PATCH"
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error ?? "Не удалось скрыть товар");
+  return data as Promise<Product>;
 }
 
 function loadLocalProducts() {

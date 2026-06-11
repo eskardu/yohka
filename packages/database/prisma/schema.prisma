@@ -42,6 +42,14 @@ model Category {
   products  Product[]
 }
 
+model StoreSettings {
+  id            String   @id @default("default")
+  deliveryTitle String   @default("Ближайшие дни доставки")
+  deliveryDays  String[] @default(["Вторник", "Четверг", "Суббота"])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 model Product {
   id            String      @id @default(cuid())
   name          String

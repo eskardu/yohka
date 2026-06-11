@@ -3,7 +3,6 @@ import { OrderStatus, PaymentMethod, Prisma } from "@prisma/client";
 import { prisma } from "@yohkar/database";
 import { z } from "zod";
 import { config } from "./config.js";
-import { getNextDeliveryDays } from "./delivery.js";
 import { AppError } from "./errors.js";
 import { buildGoogleMapsDirectionsUrl } from "./maps.js";
 import { createOrder, updateOrderStatus } from "./services/orders.js";
@@ -36,19 +35,50 @@ const checkoutSchema = z.object({
   items: z.array(z.object({ productId: z.string(), quantity: z.number().positive() })).min(1)
 });
 
+const weekdayOptions = [
+  "Понедельник",
+  "Вторник",
+  "Среда",
+  "Четверг",
+  "Пятница",
+  "Суббота",
+  "Воскресенье"
+] as const;
+
+const settingsSchema = z.object({
+  deliveryTitle: z.string().min(1).max(80).optional(),
+  deliveryDays: z.array(z.enum(weekdayOptions)).min(1).max(7).optional()
+});
+
 router.get("/health", (_request, response) => {
   response.json({ ok: true });
 });
 
-router.get("/api/settings", (_request, response) => {
+router.get("/api/settings", asyncRoute(async (_request, response) => {
+  const settings = await getStoreSettings();
   response.json({
     storeName: config.storeName,
-    deliveryDays: getNextDeliveryDays(4),
+    deliveryTitle: settings.deliveryTitle,
+    deliveryDays: settings.deliveryDays,
     deliveryFee: config.deliveryFee,
     freeDeliveryFromAmount: config.freeDeliveryFromAmount,
     freeDeliveryFromKg: config.freeDeliveryFromKg
   });
-});
+}));
+
+router.patch("/api/settings", asyncRoute(async (request, response) => {
+  const body = settingsSchema.parse(request.body);
+  const settings = await prisma.storeSettings.upsert({
+    where: { id: "default" },
+    update: body,
+    create: {
+      id: "default",
+      deliveryTitle: body.deliveryTitle ?? "Ближайшие дни доставки",
+      deliveryDays: body.deliveryDays ?? ["Вторник", "Четверг", "Суббота"]
+    }
+  });
+  response.json(settings);
+}));
 
 router.get("/api/categories", asyncRoute(async (_request, response) => {
   const categories = await prisma.category.findMany({
@@ -264,4 +294,16 @@ function getPeriodRange(period: "today" | "yesterday" | "week" | "month" | "year
   const to = new Date(now);
   to.setMilliseconds(999);
   return { from, to };
+}
+
+async function getStoreSettings() {
+  return prisma.storeSettings.upsert({
+    where: { id: "default" },
+    update: {},
+    create: {
+      id: "default",
+      deliveryTitle: "Ближайшие дни доставки",
+      deliveryDays: ["Вторник", "Четверг", "Суббота"]
+    }
+  });
 }

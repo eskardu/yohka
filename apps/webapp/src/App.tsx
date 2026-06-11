@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronLeft, LocateFixed, Minus, Pencil, Plus, Settings, ShoppingCart, Trash2 } from "lucide-react";
 import { formatMoney } from "@yohkar/shared";
 import { getCartTotals, loadCart, saveCart } from "./cart.js";
-import { createProduct, deactivateProduct, getCategories, getProducts, getSettings, postOrder, saveDeliveryDays, saveDeliveryTitle, updateProduct, weekdayOptions, type Settings as AppSettings } from "./api.js";
+import { createProduct, deactivateProduct, getCategories, getProducts, getSettings, postOrder, updateProduct, updateSettings, weekdayOptions, type Settings as AppSettings } from "./api.js";
 import type { CartLine, Category, Product } from "./types.js";
 
 type View = "catalog" | "cart" | "success" | "admin" | "admin-login";
@@ -447,27 +447,47 @@ function AdminProductsView({
     }
   }
 
-  function addDeliveryDay() {
+  async function addDeliveryDay() {
     if (!settings || !newDeliveryDay) return;
-    const deliveryDays = saveDeliveryDays([...settings.deliveryDays, newDeliveryDay]);
-    onSettingsChange({ ...settings, deliveryDays });
-    setNewDeliveryDay("");
-    setMessage("День доставки добавлен.");
+    setMessage("");
+    setError("");
+    try {
+      const deliveryDays = weekdayOptions.filter((day) => [...settings.deliveryDays, newDeliveryDay].includes(day));
+      const savedSettings = await updateSettings({ deliveryDays });
+      onSettingsChange(savedSettings);
+      setNewDeliveryDay("");
+      setMessage("День доставки добавлен.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось сохранить день доставки");
+    }
   }
 
-  function removeDeliveryDay(day: string) {
+  async function removeDeliveryDay(day: string) {
     if (!settings) return;
-    const deliveryDays = saveDeliveryDays(settings.deliveryDays.filter((item) => item !== day));
-    onSettingsChange({ ...settings, deliveryDays });
-    setMessage("День доставки удален.");
+    setMessage("");
+    setError("");
+    try {
+      const savedSettings = await updateSettings({ deliveryDays: settings.deliveryDays.filter((item) => item !== day) });
+      onSettingsChange(savedSettings);
+      setMessage("День доставки удален.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось удалить день доставки");
+    }
   }
 
-  function updateDeliveryTitle() {
+  async function updateDeliveryTitle() {
     if (!settings) return;
-    const title = saveDeliveryTitle(deliveryTitle);
-    onSettingsChange({ ...settings, deliveryTitle: title });
-    setDeliveryTitle(title);
-    setMessage("Текст доставки обновлен.");
+    setMessage("");
+    setError("");
+    try {
+      const title = deliveryTitle.trim() || "Ближайшие дни доставки";
+      const savedSettings = await updateSettings({ deliveryTitle: title });
+      onSettingsChange(savedSettings);
+      setDeliveryTitle(savedSettings.deliveryTitle ?? title);
+      setMessage("Текст доставки обновлен.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось сохранить текст доставки");
+    }
   }
 
   return (
