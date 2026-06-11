@@ -1,0 +1,10 @@
+node_modules
+dist
+apps/webapp/dist
+*.log
+.env
+.env.local
+.git
+.gitignore
+coverage
+*.tsbuildinfo

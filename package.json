@@ -1,0 +1,28 @@
+{
+  "name": "yohkar-orders",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run prisma:generate && npm run build --workspaces",
+    "dev": "npm run prisma:generate && npm run build -w @yohkar/database && npm run build -w @yohkar/shared && concurrently -n api,webapp,client-bot,admin-bot -c cyan,green,magenta,yellow \"npm run dev -w @yohkar/api\" \"npm run dev -w @yohkar/webapp\" \"npm run dev -w @yohkar/client-bot\" \"npm run dev -w @yohkar/admin-bot\"",
+    "lint": "npm run lint --workspaces --if-present",
+    "prisma:generate": "prisma generate --schema packages/database/prisma/schema.prisma",
+    "prisma:migrate": "prisma migrate dev --schema packages/database/prisma/schema.prisma",
+    "prisma:deploy": "prisma migrate deploy --schema packages/database/prisma/schema.prisma",
+    "prisma:seed": "tsx packages/database/prisma/seed.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "concurrently": "^9.1.0",
+    "prisma": "^6.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.1.0"
+  }
+}

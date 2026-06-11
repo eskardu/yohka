@@ -1,0 +1,67 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-yohkar}
+      POSTGRES_USER: ${POSTGRES_USER:-yohkar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-yohkar} -d ${POSTGRES_DB:-yohkar}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      args:
+        VITE_API_URL: ""
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    environment:
+      API_PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-yohkar}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-yohkar}?schema=public
+      WEBAPP_DIST_PATH: /app/apps/webapp/dist
+    ports:
+      - "4000:4000"
+    command: sh -c "npm run prisma:deploy && npm run start -w @yohkar/api"
+
+  client-bot:
+    build:
+      context: .
+      args:
+        VITE_API_URL: ""
+    restart: unless-stopped
+    depends_on:
+      - api
+    env_file:
+      - .env.production
+    environment:
+      API_BASE_URL: http://api:4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-yohkar}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-yohkar}?schema=public
+    command: npm run start -w @yohkar/client-bot
+
+  admin-bot:
+    build:
+      context: .
+      args:
+        VITE_API_URL: ""
+    restart: unless-stopped
+    depends_on:
+      - api
+    env_file:
+      - .env.production
+    environment:
+      API_BASE_URL: http://api:4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-yohkar}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-yohkar}?schema=public
+    command: npm run start -w @yohkar/admin-bot
+
+volumes:
+  postgres_data:
