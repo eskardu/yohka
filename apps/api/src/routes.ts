@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { OrderStatus, PaymentMethod, Prisma } from "@prisma/client";
 import { prisma } from "@yohkar/database";
 import { z } from "zod";
@@ -9,6 +9,11 @@ import { buildGoogleMapsDirectionsUrl } from "./maps.js";
 import { createOrder, updateOrderStatus } from "./services/orders.js";
 
 export const router = Router();
+
+const asyncRoute = (handler: RequestHandler): RequestHandler =>
+  (request, response, next) => {
+    Promise.resolve(handler(request, response, next)).catch(next);
+  };
 
 const checkoutSchema = z.object({
   initData: z.string().optional(),
@@ -45,29 +50,29 @@ router.get("/api/settings", (_request, response) => {
   });
 });
 
-router.get("/api/categories", async (_request, response) => {
+router.get("/api/categories", asyncRoute(async (_request, response) => {
   const categories = await prisma.category.findMany({
     where: { isActive: true },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }]
   });
   response.json(categories);
-});
+}));
 
-router.get("/api/products", async (request, response) => {
+router.get("/api/products", asyncRoute(async (request, response) => {
   const categoryId = typeof request.query.categoryId === "string" ? request.query.categoryId : undefined;
   const products = await prisma.product.findMany({
     where: { isActive: true, ...(categoryId ? { categoryId } : {}) },
     orderBy: { name: "asc" }
   });
   response.json(products);
-});
+}));
 
-router.post("/api/orders", async (request, response) => {
+router.post("/api/orders", asyncRoute(async (request, response) => {
   const order = await createOrder(checkoutSchema.parse(request.body));
   response.status(201).json(order);
-});
+}));
 
-router.get("/api/orders", async (request, response) => {
+router.get("/api/orders", asyncRoute(async (request, response) => {
   const status = typeof request.query.status === "string" ? request.query.status : undefined;
   const orders = await prisma.order.findMany({
     where: status && status in OrderStatus ? { status: status as OrderStatus } : undefined,
@@ -76,24 +81,26 @@ router.get("/api/orders", async (request, response) => {
     take: 100
   });
   response.json(orders);
-});
+}));
 
-router.get("/api/orders/:id", async (request, response) => {
+router.get("/api/orders/:id", asyncRoute(async (request, response) => {
+  const orderId = z.string().parse(request.params.id);
   const order = await prisma.order.findUnique({
-    where: { id: request.params.id },
+    where: { id: orderId },
     include: { user: true, items: true }
   });
   if (!order) throw new AppError("Order not found", 404);
   response.json(order);
-});
+}));
 
-router.patch("/api/orders/:id/status", async (request, response) => {
+router.patch("/api/orders/:id/status", asyncRoute(async (request, response) => {
+  const orderId = z.string().parse(request.params.id);
   const body = z.object({ status: z.nativeEnum(OrderStatus) }).parse(request.body);
-  const order = await updateOrderStatus(request.params.id, body.status);
+  const order = await updateOrderStatus(orderId, body.status);
   response.json(order);
-});
+}));
 
-router.get("/api/admin/stats", async (request, response) => {
+router.get("/api/admin/stats", asyncRoute(async (request, response) => {
   const period = z.enum(["today", "yesterday", "week", "month", "year"]).default("today").parse(request.query.period);
   const { from, to } = getPeriodRange(period);
 
@@ -134,11 +141,12 @@ router.get("/api/admin/stats", async (request, response) => {
     bestSellingProducts: [...byProduct.values()].sort((a, b) => b.quantity - a.quantity).slice(0, 5),
     mostProfitableProducts: [...byProduct.values()].sort((a, b) => b.profit - a.profit).slice(0, 5)
   });
-});
+}));
 
-router.get("/api/admin/customers/:id", async (request, response) => {
+router.get("/api/admin/customers/:id", asyncRoute(async (request, response) => {
+  const customerId = z.string().parse(request.params.id);
   const customer = await prisma.user.findUnique({
-    where: { id: request.params.id },
+    where: { id: customerId },
     include: { orders: { include: { items: true }, orderBy: { createdAt: "desc" } } }
   });
   if (!customer) throw new AppError("Customer not found", 404);
@@ -151,7 +159,7 @@ router.get("/api/admin/customers/:id", async (request, response) => {
     averageCheck: delivered.length ? total / delivered.length : 0,
     lastOrderAt: customer.orders[0]?.createdAt ?? null
   });
-});
+}));
 
 const productSchema = z.object({
   name: z.string().min(2),
@@ -167,7 +175,7 @@ const productSchema = z.object({
   isActive: z.boolean().optional()
 });
 
-router.post("/api/admin/products", async (request, response) => {
+router.post("/api/admin/products", asyncRoute(async (request, response) => {
   const body = productSchema.parse(request.body);
   const product = await prisma.product.create({
     data: {
@@ -179,12 +187,13 @@ router.post("/api/admin/products", async (request, response) => {
     }
   });
   response.status(201).json(product);
-});
+}));
 
-router.patch("/api/admin/products/:id", async (request, response) => {
+router.patch("/api/admin/products/:id", asyncRoute(async (request, response) => {
+  const productId = z.string().parse(request.params.id);
   const body = productSchema.partial().parse(request.body);
   const product = await prisma.product.update({
-    where: { id: request.params.id },
+    where: { id: productId },
     data: {
       ...body,
       purchasePrice: body.purchasePrice == null ? undefined : new Prisma.Decimal(body.purchasePrice),
@@ -194,17 +203,18 @@ router.patch("/api/admin/products/:id", async (request, response) => {
     }
   });
   response.json(product);
-});
+}));
 
-router.patch("/api/admin/products/:id/deactivate", async (request, response) => {
+router.patch("/api/admin/products/:id/deactivate", asyncRoute(async (request, response) => {
+  const productId = z.string().parse(request.params.id);
   const product = await prisma.product.update({
-    where: { id: request.params.id },
+    where: { id: productId },
     data: { isActive: false }
   });
   response.json(product);
-});
+}));
 
-router.get("/api/admin/routes/today", async (_request, response) => {
+router.get("/api/admin/routes/today", asyncRoute(async (_request, response) => {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   const end = new Date(start);
@@ -229,7 +239,7 @@ router.get("/api/admin/routes/today", async (_request, response) => {
     points
   );
   response.json(route);
-});
+}));
 
 function getPeriodRange(period: "today" | "yesterday" | "week" | "month" | "year") {
   const now = new Date();
