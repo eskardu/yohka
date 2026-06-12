@@ -120,7 +120,7 @@ export async function createOrder(input: CheckoutInput) {
         deliveryDay: input.deliveryDay ? new Date(input.deliveryDay) : undefined,
         items: { create: orderItems }
       },
-      include: { user: true, items: true }
+      include: { user: true, items: { include: { product: true } } }
     });
   });
 
@@ -226,7 +226,7 @@ export async function notifyAdmins(order: Awaited<ReturnType<typeof prisma.order
 
   const results = await Promise.allSettled(
     config.adminTelegramIds.map((chatId) =>
-      telegram.sendMessage(chatId, text, { reply_markup: keyboard })
+      telegram.sendMessage(chatId, text, { parse_mode: "HTML", reply_markup: keyboard })
     )
   );
 

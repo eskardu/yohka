@@ -1,10 +1,9 @@
-import type { Order, OrderItem, User } from "@prisma/client";
+import type { Order, OrderItem, Product, User } from "@prisma/client";
 import { formatMoney } from "@yohkar/shared";
-import { buildPointMapsUrl } from "./maps.js";
 
 type FullOrder = Order & {
   user: User;
-  items: OrderItem[];
+  items: Array<OrderItem & { product?: Product | null }>;
 };
 
 const paymentLabels = {
@@ -13,40 +12,70 @@ const paymentLabels = {
   STC_PAY: "STC Pay"
 } as const;
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function formatQuantity(value: unknown) {
+  const number = Number(value);
+  if (Number.isInteger(number)) return String(number);
+  return number.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function formatUnit(unit?: string | null) {
+  const normalized = unit?.trim().toLowerCase();
+  if (!normalized) return "";
+
+  const labels: Record<string, string> = {
+    kg: "кг",
+    "кг": "кг",
+    pcs: "шт",
+    pc: "шт",
+    piece: "шт",
+    pieces: "шт",
+    "штук": "шт",
+    "шт": "шт",
+    package: "упак.",
+    pack: "упак.",
+    "упаковка": "упак.",
+    liter: "л",
+    litre: "л",
+    l: "л",
+    "литр": "л"
+  };
+
+  return labels[normalized] ?? unit ?? "";
+}
+
 export function formatOrderMessage(order: FullOrder) {
   const items = order.items
-    .map(
-      (item, index) =>
-        `${index + 1}. ${item.productNameSnapshot} - ${Number(item.quantity)} x ${formatMoney(item.salePriceSnapshot.toString())} = ${formatMoney(item.totalPrice.toString())}`
-    )
+    .map((item, index) => {
+      const unit = formatUnit(item.product?.unit);
+      const quantity = formatQuantity(item.quantity);
+      const suffix = unit ? ` ${unit}` : "";
+      return `${index + 1}. <b>${escapeHtml(item.productNameSnapshot)}</b> ${quantity}${suffix}`;
+    })
     .join("\n");
 
   const username = order.user.username ? `@${order.user.username}` : "не указан";
-  const mapsUrl = buildPointMapsUrl(Number(order.latitude), Number(order.longitude));
-  const delivery =
-    Number(order.deliveryFee) === 0
-      ? "бесплатно"
-      : formatMoney(order.deliveryFee.toString());
 
   return [
-    `Новый заказ #${order.orderNumber}`,
+    `<b>Новый заказ #${order.orderNumber}</b>`,
     "",
-    `Клиент: ${order.customerName}`,
-    `Телефон: ${order.customerPhone}`,
-    `Telegram: ${username}`,
-    `К оплате: ${formatMoney(order.totalAmount.toString())}`,
-    `Доставка: ${delivery}`,
-    `Оплата: ${paymentLabels[order.paymentMethod]}`,
-    order.deliveryDay ? `День доставки: ${order.deliveryDay.toISOString().slice(0, 10)}` : "",
+    `<b>Клиент:</b> ${escapeHtml(username)}`,
+    `<b>Оплата:</b> ${paymentLabels[order.paymentMethod]}`,
+    order.deliveryDay ? `<b>День доставки:</b> ${order.deliveryDay.toISOString().slice(0, 10)}` : "",
     "",
-    "Товары:",
+    "<b>Товары:</b>",
     items,
     "",
-    "Комментарий:",
-    order.customerComment || "не указан",
+    "<b>Комментарий:</b>",
+    escapeHtml(order.customerComment || "не указан"),
     "",
-    "Геолокация:",
-    mapsUrl
+    `<b>К оплате: ${formatMoney(order.totalAmount.toString())}</b>`
   ]
     .filter(Boolean)
     .join("\n");
