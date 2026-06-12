@@ -15,16 +15,35 @@ if (!token) {
 
 const bot = new Telegraf(token);
 
+type StatPeriod = "today" | "week" | "month" | "year";
+
 const adminMenu = {
   reply_markup: {
     keyboard: [
-      ["Новые заказы", "В доставке"],
-      ["Скоро доставка", "Маршрут"],
-      ["Статистика сегодня", "Неделя"]
+      ["Скоро доставка"],
+      ["Общий маршрут", "Статистика"]
     ],
     resize_keyboard: true,
     is_persistent: true
   }
+};
+
+const statsKeyboard = Markup.inlineKeyboard([
+  [
+    Markup.button.callback("Сегодня", "stats:today"),
+    Markup.button.callback("Неделя", "stats:week")
+  ],
+  [
+    Markup.button.callback("Месяц", "stats:month"),
+    Markup.button.callback("Год", "stats:year")
+  ]
+]);
+
+const statPeriodLabels: Record<StatPeriod, string> = {
+  today: "сегодня",
+  week: "за неделю",
+  month: "за месяц",
+  year: "за год"
 };
 
 function isAdmin(id?: number) {
@@ -42,28 +61,16 @@ bot.use(async (ctx, next) => {
 bot.start((ctx) => showAdminMenu(ctx));
 bot.command("admin", (ctx) => showAdminMenu(ctx));
 
-bot.hears("Новые заказы", async (ctx) => {
-  await sendOrders(ctx, "NEW");
-});
-
-bot.hears("В доставке", async (ctx) => {
-  await sendOrders(ctx, "ON_DELIVERY");
-});
-
 bot.hears("Скоро доставка", async (ctx) => {
   await notifyDeliverySoon(ctx);
 });
 
-bot.hears("Маршрут", async (ctx) => {
+bot.hears("Общий маршрут", async (ctx) => {
   await sendTodayRoute(ctx);
 });
 
-bot.hears("Статистика сегодня", async (ctx) => {
-  await sendStats(ctx, "today");
-});
-
-bot.hears("Неделя", async (ctx) => {
-  await sendStats(ctx, "week");
+bot.hears("Статистика", async (ctx) => {
+  await showStatsMenu(ctx);
 });
 
 bot.action("orders:new", async (ctx) => {
@@ -81,14 +88,9 @@ bot.action("orders:notify-soon", async (ctx) => {
   await notifyDeliverySoon(ctx);
 });
 
-bot.action("stats:today", async (ctx) => {
+bot.action(/^stats:(today|week|month|year)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  await sendStats(ctx, "today");
-});
-
-bot.action("stats:week", async (ctx) => {
-  await ctx.answerCbQuery();
-  await sendStats(ctx, "week");
+  await sendStats(ctx, ctx.match[1] as StatPeriod);
 });
 
 bot.action("route:today", async (ctx) => {
@@ -148,6 +150,10 @@ bot.command("route", async (ctx) => {
 
 async function showAdminMenu(ctx: Context) {
   await ctx.reply("Админ-меню закреплено внизу.", adminMenu);
+}
+
+async function showStatsMenu(ctx: Context) {
+  await ctx.reply("Выберите период статистики:", statsKeyboard);
 }
 
 async function notifyDeliverySoon(ctx: Context) {
@@ -248,7 +254,7 @@ async function sendOrders(ctx: Context, status: OrderStatus) {
   }
 }
 
-async function sendStats(ctx: Context, period: "today" | "week") {
+async function sendStats(ctx: Context, period: StatPeriod) {
   const response = await fetch(`${apiBaseUrl}/api/admin/stats?period=${period}`);
   const stats = await response.json() as {
     orderCount: number;
@@ -265,7 +271,7 @@ async function sendStats(ctx: Context, period: "today" | "week") {
 
   await ctx.reply(
     [
-      `Статистика: ${period}`,
+      `Статистика ${statPeriodLabels[period]}`,
       `Заказов: ${stats.orderCount}`,
       `Продажи: ${formatMoney(stats.salesTotal)}`,
       `Себестоимость: ${formatMoney(stats.costTotal)}`,
