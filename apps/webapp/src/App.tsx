@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronLeft, LocateFixed, Minus, Pencil, Plus, Settings, ShoppingCart, Trash2 } from "lucide-react";
 import { formatMoney } from "@yohkar/shared";
-import { getCartTotals, loadCart, saveCart } from "./cart.js";
+import { getCartTotals } from "./cart.js";
 import { createProduct, deactivateProduct, getCategories, getProducts, getSettings, postOrder, updateProduct, updateSettings, weekdayOptions, type Settings as AppSettings } from "./api.js";
 import type { CartLine, Category, Product } from "./types.js";
 
@@ -33,7 +33,7 @@ export function App() {
   const [view, setView] = useState<View>("catalog");
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [cart, setCart] = useState<CartLine[]>(loadCart);
+  const [cart, setCart] = useState<CartLine[]>([]);
   const [settings, setSettings] = useState<Awaited<ReturnType<typeof getSettings>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -59,8 +59,6 @@ export function App() {
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
-
-  useEffect(() => saveCart(cart), [cart]);
 
   const shownProducts = useMemo(() => products, [products]);
   const totals = getCartTotals(cart, products);

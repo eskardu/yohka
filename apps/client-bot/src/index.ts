@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { Telegraf, Markup, type Context } from "telegraf";
+import { Telegraf, type Context } from "telegraf";
 
 const token = process.env.BOT_TOKEN_CLIENT;
 const webAppUrl = process.env.WEBAPP_URL;
@@ -37,34 +37,18 @@ bot.command("shop", async (ctx) => {
   await ctx.reply("Магазин готов к заказу.", shopMenu);
 });
 
-bot.hears("Открыть магазин", async (ctx) => {
-  await ctx.reply(
-    "Нажмите кнопку ниже, чтобы открыть магазин.",
-    Markup.inlineKeyboard([
-      Markup.button.webApp("Открыть магазин", webAppUrl)
-    ])
-  );
-});
-
 bot.catch((error) => {
   console.error("Client bot error", error);
 });
 
 bot.launch(async () => {
   try {
-    await bot.telegram.setMyCommands([
-      { command: "start", description: "Открыть магазин" },
-      { command: "shop", description: "Открыть магазин" }
-    ]);
+    await bot.telegram.deleteMyCommands();
     await bot.telegram.setChatMenuButton({
-      menuButton: {
-        type: "web_app",
-        text: "Открыть магазин",
-        web_app: { url: webAppUrl }
-      }
+      menuButton: { type: "default" }
     });
   } catch (error) {
-    console.error("Failed to set client bot menu", error);
+    console.error("Failed to clear client bot menu", error);
   }
   console.log("Client bot is running");
 });

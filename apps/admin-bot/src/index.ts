@@ -285,13 +285,9 @@ bot.catch((error) => {
 
 bot.launch(async () => {
   try {
-    await bot.telegram.setMyCommands([
-      { command: "start", description: "Показать админ-меню" },
-      { command: "admin", description: "Показать админ-меню" },
-      { command: "route", description: "Построить маршрут" }
-    ]);
+    await bot.telegram.deleteMyCommands();
   } catch (error) {
-    console.error("Failed to set admin bot commands", error);
+    console.error("Failed to clear admin bot commands", error);
   }
   console.log("Admin bot is running");
 });
