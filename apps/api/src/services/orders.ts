@@ -144,16 +144,62 @@ export async function updateOrderStatus(id: string, status: OrderStatus) {
   if (status === "ON_DELIVERY" || status === "DELIVERED") {
     const telegram = getClientTelegram();
     if (telegram) {
-      await telegram.sendMessage(
-        Number(order.user.telegramId),
-        status === "ON_DELIVERY"
-          ? "Скоро заказ будет доставлен."
-          : "Заказ доставлен, ждет на улице."
-      );
+      try {
+        await telegram.sendMessage(
+          Number(order.user.telegramId),
+          status === "ON_DELIVERY"
+            ? "Скоро заказ будет доставлен."
+            : "Заказ доставлен, ждет на улице."
+        );
+      } catch (error) {
+        console.error("Failed to notify customer about order status", order.orderNumber, error);
+      }
     }
   }
 
   return order;
+}
+
+export async function notifyDeliverySoonForActiveOrders() {
+  const orders = await prisma.order.findMany({
+    where: {
+      status: { in: ["NEW", "ACCEPTED", "PREPARING", "ON_DELIVERY"] }
+    },
+    include: { user: true }
+  });
+
+  if (!orders.length) {
+    return { totalOrders: 0, notifiedUsers: 0, failedUsers: 0 };
+  }
+
+  await prisma.order.updateMany({
+    where: { id: { in: orders.map((order) => order.id) } },
+    data: { status: "ON_DELIVERY" }
+  });
+
+  const telegram = getClientTelegram();
+  if (!telegram) {
+    console.error("Client bot is not configured, cannot send delivery notifications");
+    return { totalOrders: orders.length, notifiedUsers: 0, failedUsers: 0 };
+  }
+
+  const chatIds = [...new Set(orders.map((order) => Number(order.user.telegramId)))];
+  const results = await Promise.allSettled(
+    chatIds.map((chatId) => telegram.sendMessage(chatId, "Скоро заказ будет доставлен."))
+  );
+  const failedUsers = results.filter((result) => result.status === "rejected").length;
+
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.error("Failed to send bulk delivery notification", result.reason);
+    }
+  }
+
+  return {
+    totalOrders: orders.length,
+    notifiedUsers: chatIds.length - failedUsers,
+    failedUsers
+  };
 }
 
 export async function notifyAdmins(order: Awaited<ReturnType<typeof prisma.order.create>>) {
@@ -165,8 +211,8 @@ export async function notifyAdmins(order: Awaited<ReturnType<typeof prisma.order
     inline_keyboard: [
       [
         {
-          text: "Уведомить: скоро доставка",
-          callback_data: `order:${order.id}:ON_DELIVERY`
+          text: "Доставлено",
+          callback_data: `order:${order.id}:DELIVERED`
         }
       ],
       [

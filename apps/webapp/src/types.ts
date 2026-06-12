@@ -10,6 +10,7 @@ export type TelegramWebApp = {
   };
   ready: () => void;
   expand: () => void;
+  requestFullscreen?: () => void;
   close: () => void;
 };
 

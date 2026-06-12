@@ -17,7 +17,7 @@ export function formatOrderMessage(order: FullOrder) {
   const items = order.items
     .map(
       (item, index) =>
-        `${index + 1}. ${item.productNameSnapshot} — ${Number(item.quantity)} × ${formatMoney(item.salePriceSnapshot.toString())} = ${formatMoney(item.totalPrice.toString())}`
+        `${index + 1}. ${item.productNameSnapshot} - ${Number(item.quantity)} x ${formatMoney(item.salePriceSnapshot.toString())} = ${formatMoney(item.totalPrice.toString())}`
     )
     .join("\n");
 

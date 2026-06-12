@@ -5,7 +5,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { AppError } from "./errors.js";
 import { buildGoogleMapsDirectionsUrl } from "./maps.js";
-import { createOrder, updateOrderStatus } from "./services/orders.js";
+import { createOrder, notifyDeliverySoonForActiveOrders, updateOrderStatus } from "./services/orders.js";
 
 export const router = Router();
 
@@ -121,6 +121,11 @@ router.get("/api/orders/:id", asyncRoute(async (request, response) => {
   });
   if (!order) throw new AppError("Order not found", 404);
   response.json(order);
+}));
+
+router.post("/api/orders/notify-delivery-soon", asyncRoute(async (_request, response) => {
+  const result = await notifyDeliverySoonForActiveOrders();
+  response.json(result);
 }));
 
 router.patch("/api/orders/:id/status", asyncRoute(async (request, response) => {

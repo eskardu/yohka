@@ -15,6 +15,18 @@ if (!token) {
 
 const bot = new Telegraf(token);
 
+const adminMenu = {
+  reply_markup: {
+    keyboard: [
+      ["Новые заказы", "В доставке"],
+      ["Скоро доставка", "Маршрут"],
+      ["Статистика сегодня", "Неделя"]
+    ],
+    resize_keyboard: true,
+    is_persistent: true
+  }
+};
+
 function isAdmin(id?: number) {
   return id ? adminIds.includes(String(id)) : false;
 }
@@ -30,6 +42,30 @@ bot.use(async (ctx, next) => {
 bot.start((ctx) => showAdminMenu(ctx));
 bot.command("admin", (ctx) => showAdminMenu(ctx));
 
+bot.hears("Новые заказы", async (ctx) => {
+  await sendOrders(ctx, "NEW");
+});
+
+bot.hears("В доставке", async (ctx) => {
+  await sendOrders(ctx, "ON_DELIVERY");
+});
+
+bot.hears("Скоро доставка", async (ctx) => {
+  await notifyDeliverySoon(ctx);
+});
+
+bot.hears("Маршрут", async (ctx) => {
+  await sendTodayRoute(ctx);
+});
+
+bot.hears("Статистика сегодня", async (ctx) => {
+  await sendStats(ctx, "today");
+});
+
+bot.hears("Неделя", async (ctx) => {
+  await sendStats(ctx, "week");
+});
+
 bot.action("orders:new", async (ctx) => {
   await ctx.answerCbQuery();
   await sendOrders(ctx, "NEW");
@@ -38,6 +74,11 @@ bot.action("orders:new", async (ctx) => {
 bot.action("orders:delivery", async (ctx) => {
   await ctx.answerCbQuery();
   await sendOrders(ctx, "ON_DELIVERY");
+});
+
+bot.action("orders:notify-soon", async (ctx) => {
+  await ctx.answerCbQuery();
+  await notifyDeliverySoon(ctx);
 });
 
 bot.action("stats:today", async (ctx) => {
@@ -71,33 +112,75 @@ bot.action(/^order:(.+):(ON_DELIVERY|DELIVERED|CANCELLED)$/, async (ctx) => {
   const order = await response.json() as { orderNumber: number };
   await ctx.answerCbQuery("Готово");
 
+  if (status === "DELIVERED") {
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+    await ctx.reply(
+      `Заказ #${order.orderNumber}: клиенту отправлено уведомление "Заказ доставлен, ждет на улице".`,
+      adminMenu
+    );
+    return;
+  }
+
   if (status === "ON_DELIVERY") {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
         [
           {
-            text: "Уведомить: заказ доставлен",
+            text: "Доставлено",
             callback_data: `order:${orderId}:DELIVERED`
           }
         ]
       ]
     });
-    await ctx.reply(`Заказ #${order.orderNumber}: клиенту отправлено уведомление "Скоро заказ будет доставлен".`);
+    await ctx.reply(
+      `Заказ #${order.orderNumber}: клиенту отправлено уведомление "Скоро заказ будет доставлен".`,
+      adminMenu
+    );
     return;
   }
 
-  if (status === "DELIVERED") {
-    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-    await ctx.reply(`Заказ #${order.orderNumber}: клиенту отправлено уведомление "Заказ доставлен, ждет на улице".`);
-    return;
-  }
-
-  await ctx.reply(`Заказ #${order.orderNumber}: отменен.`);
+  await ctx.reply(`Заказ #${order.orderNumber}: отменен.`, adminMenu);
 });
 
 bot.command("route", async (ctx) => {
   await sendTodayRoute(ctx);
 });
+
+async function showAdminMenu(ctx: Context) {
+  await ctx.reply("Админ-меню закреплено внизу.", adminMenu);
+}
+
+async function notifyDeliverySoon(ctx: Context) {
+  const response = await fetch(`${apiBaseUrl}/api/orders/notify-delivery-soon`, {
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    await ctx.reply("Не удалось отправить массовое уведомление.", adminMenu);
+    return;
+  }
+
+  const result = await response.json() as {
+    totalOrders: number;
+    notifiedUsers: number;
+    failedUsers: number;
+  };
+
+  if (result.totalOrders === 0) {
+    await ctx.reply("Активных заказов для уведомления нет.", adminMenu);
+    return;
+  }
+
+  await ctx.reply(
+    [
+      "Уведомление о скорой доставке отправлено.",
+      `Активных заказов: ${result.totalOrders}`,
+      `Клиентов уведомлено: ${result.notifiedUsers}`,
+      `Ошибок отправки: ${result.failedUsers}`
+    ].join("\n"),
+    adminMenu
+  );
+}
 
 async function sendTodayRoute(ctx: Context) {
   const response = await fetch(`${apiBaseUrl}/api/admin/routes/today`);
@@ -107,7 +190,7 @@ async function sendTodayRoute(ctx: Context) {
   };
 
   if (!route.sorted.length) {
-    await ctx.reply("На сегодня нет заказов со статусом принят/в доставке и геолокацией.");
+    await ctx.reply("На сегодня нет заказов со статусом принят/в доставке и геолокацией.", adminMenu);
     return;
   }
 
@@ -115,18 +198,10 @@ async function sendTodayRoute(ctx: Context) {
     .map((order, index) => `${index + 1}. Заказ #${order.orderNumber}`)
     .join("\n");
 
-  await ctx.reply(`Порядок доставки:\n${orderList}`, Markup.inlineKeyboard([
-    Markup.button.url("Открыть общий маршрут", route.url)
-  ]));
-}
-
-async function showAdminMenu(ctx: Context) {
   await ctx.reply(
-    "Админ-меню",
+    `Порядок доставки:\n${orderList}`,
     Markup.inlineKeyboard([
-      [Markup.button.callback("Новые заказы", "orders:new"), Markup.button.callback("В доставке", "orders:delivery")],
-      [Markup.button.callback("Статистика сегодня", "stats:today"), Markup.button.callback("Неделя", "stats:week")],
-      [Markup.button.callback("Построить общий маршрут", "route:today")]
+      Markup.button.url("Открыть общий маршрут", route.url)
     ])
   );
 }
@@ -144,7 +219,7 @@ async function sendOrders(ctx: Context, status: OrderStatus) {
   }>;
 
   if (!orders.length) {
-    await ctx.reply("Заказов нет.");
+    await ctx.reply("Заказов нет.", adminMenu);
     return;
   }
 
@@ -167,9 +242,7 @@ async function sendOrders(ctx: Context, status: OrderStatus) {
         `К оплате: ${formatMoney(order.totalAmount)}`
       ].join("\n"),
       Markup.inlineKeyboard([
-        [
-          Markup.button.callback("Уведомить: скоро доставка", `order:${order.id}:ON_DELIVERY`)
-        ]
+        [Markup.button.callback("Доставлено", `order:${order.id}:DELIVERED`)]
       ])
     );
   }
@@ -201,7 +274,8 @@ async function sendStats(ctx: Context, period: "today" | "week") {
       "",
       "Топ продаж:",
       best
-    ].join("\n")
+    ].join("\n"),
+    adminMenu
   );
 }
 
@@ -209,7 +283,16 @@ bot.catch((error) => {
   console.error("Admin bot error", error);
 });
 
-bot.launch(() => {
+bot.launch(async () => {
+  try {
+    await bot.telegram.setMyCommands([
+      { command: "start", description: "Показать админ-меню" },
+      { command: "admin", description: "Показать админ-меню" },
+      { command: "route", description: "Построить маршрут" }
+    ]);
+  } catch (error) {
+    console.error("Failed to set admin bot commands", error);
+  }
   console.log("Admin bot is running");
 });
 
