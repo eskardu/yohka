@@ -124,7 +124,10 @@ export async function createOrder(input: CheckoutInput) {
     });
   });
 
-  await notifyAdmins(order);
+  notifyAdmins(order).catch((error) => {
+    console.error("Failed to notify admins about order", order.orderNumber, error);
+  });
+
   return order;
 }
 
@@ -175,9 +178,15 @@ export async function notifyAdmins(order: Awaited<ReturnType<typeof prisma.order
     ]
   };
 
-  await Promise.all(
+  const results = await Promise.allSettled(
     config.adminTelegramIds.map((chatId) =>
       telegram.sendMessage(chatId, text, { reply_markup: keyboard })
     )
   );
+
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.error("Failed to send admin order notification", order.orderNumber, result.reason);
+    }
+  }
 }
