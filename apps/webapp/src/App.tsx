@@ -416,15 +416,13 @@ function AdminProductsView({
         throw new Error("Заполните название, категорию, цену и остаток.");
       }
 
-      const saved = form.id
-        ? await updateProduct(form.id, payload)
-        : await createProduct(payload);
+      if (form.id) {
+        await updateProduct(form.id, payload);
+      } else {
+        await createProduct(payload);
+      }
 
-      onProductsChange(
-        form.id
-          ? products.map((product) => (product.id === saved.id ? saved : product))
-          : [...products, saved].sort((a, b) => a.name.localeCompare(b.name))
-      );
+      onProductsChange(await getProducts());
       setForm(emptyForm(categories[0]?.id));
       setMessage(form.id ? "Товар обновлен." : "Товар добавлен.");
     } catch (err) {
@@ -439,7 +437,7 @@ function AdminProductsView({
     setError("");
     try {
       await deactivateProduct(productId);
-      onProductsChange(products.filter((product) => product.id !== productId));
+      onProductsChange(await getProducts());
       if (form.id === productId) setForm(emptyForm(categories[0]?.id));
       setMessage("Товар скрыт из каталога.");
     } catch (err) {
