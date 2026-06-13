@@ -29,6 +29,9 @@ services:
       API_PORT: 4000
       DATABASE_URL: postgresql://${POSTGRES_USER:-yohkar}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-yohkar}?schema=public
       WEBAPP_DIST_PATH: /app/apps/webapp/dist
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads_data:/app/uploads
     ports:
       - "4000:4000"
     command: sh -c "npm run prisma:deploy && npm run start -w @yohkar/api"
@@ -65,3 +68,4 @@ services:
 
 volumes:
   postgres_data:
+  uploads_data:

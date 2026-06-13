@@ -39,9 +39,9 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 0 14px;
+  padding: 4px 0 14px;
   gap: 12px;
-  min-height: 58px;
+  min-height: 54px;
 }
 
 .topbar h1 {
@@ -63,6 +63,26 @@ button {
   line-height: 1.05;
   text-align: center;
   font-weight: 900;
+}
+
+.store-header-media {
+  width: 100%;
+  padding: 0 52px;
+  display: flex;
+  justify-content: center;
+}
+
+.store-header-media img {
+  width: 100%;
+  max-height: 148px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #fff7ef;
+}
+
+.store-header-empty {
+  width: 100%;
+  min-height: 42px;
 }
 
 .segmented button {
@@ -395,6 +415,15 @@ button {
   color: #8d3b08;
 }
 
+.location.received {
+  background: #e8f7df;
+  color: #1f7a32;
+}
+
+.location.received svg {
+  color: #1f9d45;
+}
+
 .location-hint {
   margin: -4px 0 -4px;
   color: #5b3518;
@@ -460,10 +489,29 @@ textarea {
   color: #111;
 }
 
-.delivery-editor h2 {
+.delivery-editor h2,
+.header-editor h2 {
   margin: 0;
   color: #111;
   font-size: 18px;
+}
+
+.header-preview,
+.product-photo-preview {
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  border: 1px solid #f0d6c0;
+  border-radius: 8px;
+  background: #fff7ef;
+}
+
+.product-photo-preview {
+  max-height: 140px;
+}
+
+input[type="file"] {
+  padding: 9px;
 }
 
 .delivery-day-list {

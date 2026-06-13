@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronLeft, LocateFixed, Minus, Pencil, Plus, Settings, ShoppingCart, Trash2 } from "lucide-react";
 import { formatMoney } from "@yohkar/shared";
 import { getCartTotals } from "./cart.js";
-import { createProduct, deactivateProduct, getCategories, getProducts, getSettings, postOrder, updateProduct, updateSettings, weekdayOptions, type Settings as AppSettings } from "./api.js";
+import { createProduct, deactivateProduct, getCategories, getProducts, getSettings, postOrder, updateProduct, updateSettings, uploadImage, weekdayOptions, type Settings as AppSettings } from "./api.js";
 import type { CartLine, Category, Product } from "./types.js";
 
 type View = "catalog" | "cart" | "success" | "admin" | "admin-login";
@@ -12,6 +12,7 @@ const adminTelegramIds = (import.meta.env.VITE_ADMIN_TELEGRAM_IDS ?? "")
   .map((id: string) => id.trim())
   .filter(Boolean);
 const adminPin = import.meta.env.VITE_ADMIN_PIN ?? "1234";
+const apiAssetBase = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
 const unitOptions = [
   { value: "kg", label: "кг" },
@@ -90,7 +91,9 @@ export function App() {
       {view === "catalog" && (
         <>
           <header className="topbar">
-            <h1 className="store-title">{settings?.storeName ?? "Yohkar"}</h1>
+            <div className="store-header-media">
+              {settings?.headerImageUrl ? <img src={imageSrc(settings.headerImageUrl)} alt="" /> : <div className="store-header-empty" />}
+            </div>
             {canShowAdminButton && (
               <button
                 className="round-tool"
@@ -112,7 +115,7 @@ export function App() {
               const price = product.discountPrice ?? product.salePrice;
               return (
                 <article className="product-card" key={product.id}>
-                  <img src={product.imageUrl ?? fallbackImage(product.name)} alt="" />
+                  <img src={imageSrc(product.imageUrl) ?? fallbackImage(product.name)} alt="" />
                   {product.badge && <span className="product-badge">{formatBadge(product.badge)}</span>}
                   <div className="product-info">
                     <h2>{product.name}</h2>
@@ -306,8 +309,8 @@ function CartView({
       <Totals subtotal={subtotal} deliveryFee={deliveryFee} finalTotal={finalTotal} />
       <label>Комментарий<textarea value={comment} onChange={(event) => setComment(event.target.value)} /></label>
       <p className="location-hint">Для подтверждения нажмите отправить местоположение</p>
-      <button className="location" onClick={requestLocation}>
-        <LocateFixed size={18} />
+      <button className={`location${location ? " received" : ""}`} onClick={requestLocation}>
+        {location ? <Check size={18} /> : <LocateFixed size={18} />}
         {location ? "Местоположение получено" : "Отправить местоположение"}
       </button>
       {error && <p className="form-error">{error}</p>}
@@ -368,9 +371,57 @@ function AdminProductsView({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [headerUploading, setHeaderUploading] = useState(false);
+  const [productUploading, setProductUploading] = useState(false);
 
   function patchForm(patch: Partial<ProductForm>) {
     setForm((current) => ({ ...current, ...patch }));
+  }
+
+  async function uploadHeaderPhoto(file?: File | null) {
+    if (!file || !settings) return;
+    setHeaderUploading(true);
+    setMessage("");
+    setError("");
+    try {
+      const uploaded = await uploadImage(file, "header");
+      const savedSettings = await updateSettings({ headerImageUrl: uploaded.url });
+      onSettingsChange(savedSettings);
+      setMessage("Шапка сайта обновлена.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось загрузить шапку");
+    } finally {
+      setHeaderUploading(false);
+    }
+  }
+
+  async function removeHeaderPhoto() {
+    if (!settings) return;
+    setMessage("");
+    setError("");
+    try {
+      const savedSettings = await updateSettings({ headerImageUrl: null });
+      onSettingsChange(savedSettings);
+      setMessage("Шапка сайта удалена.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось удалить шапку");
+    }
+  }
+
+  async function uploadProductPhoto(file?: File | null) {
+    if (!file) return;
+    setProductUploading(true);
+    setMessage("");
+    setError("");
+    try {
+      const uploaded = await uploadImage(file, "product");
+      patchForm({ imageUrl: uploaded.url });
+      setMessage("Фото товара загружено.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось загрузить фото товара");
+    } finally {
+      setProductUploading(false);
+    }
   }
 
   function editProduct(product: Product) {
@@ -495,6 +546,22 @@ function AdminProductsView({
         {form.id && <button className="ghost" onClick={() => setForm(emptyForm(categories[0]?.id))}>Новый товар</button>}
       </div>
 
+      <section className="admin-form header-editor">
+        <h2>Шапка сайта</h2>
+        {settings?.headerImageUrl && <img className="header-preview" src={imageSrc(settings.headerImageUrl)} alt="" />}
+        <label>Фото или логотип
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            disabled={headerUploading}
+            onChange={(event) => uploadHeaderPhoto(event.target.files?.[0])}
+          />
+        </label>
+        {settings?.headerImageUrl && (
+          <button className="ghost" onClick={removeHeaderPhoto}>Убрать шапку</button>
+        )}
+      </section>
+
       <section className="admin-form delivery-editor">
         <h2>Дни доставки</h2>
         <label>Текст строки
@@ -551,6 +618,15 @@ function AdminProductsView({
           </label>
           <label>Фото URL<input value={form.imageUrl} onChange={(event) => patchForm({ imageUrl: event.target.value })} /></label>
         </div>
+        <label>Фото с телефона
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            disabled={productUploading}
+            onChange={(event) => uploadProductPhoto(event.target.files?.[0])}
+          />
+        </label>
+        {form.imageUrl && <img className="product-photo-preview" src={imageSrc(form.imageUrl)} alt="" />}
         {message && <p className="form-success">{message}</p>}
         {error && <p className="form-error">{error}</p>}
         <button className="primary" disabled={saving} onClick={saveProduct}>
@@ -562,7 +638,7 @@ function AdminProductsView({
         {products.map((product) => (
           <article className="admin-product" key={product.id}>
             <div className="admin-product-image">
-              <img src={product.imageUrl ?? fallbackImage(product.name)} alt="" />
+              <img src={imageSrc(product.imageUrl) ?? fallbackImage(product.name)} alt="" />
               {product.badge && <span>{formatBadge(product.badge)}</span>}
             </div>
             <div>
@@ -628,4 +704,10 @@ function formatBadge(badge: string) {
 
 function fallbackImage(seed: string) {
   return `https://placehold.co/600x400/e7f1e8/1d3324?text=${encodeURIComponent(seed)}`;
+}
+
+function imageSrc(src?: string | null) {
+  if (!src) return undefined;
+  if (src.startsWith("/")) return `${apiAssetBase}${src}`;
+  return src;
 }

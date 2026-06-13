@@ -1,6 +1,9 @@
 import { Router, type RequestHandler } from "express";
 import { OrderStatus, PaymentMethod, Prisma } from "@prisma/client";
 import { prisma } from "@yohkar/database";
+import crypto from "node:crypto";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 import { config } from "./config.js";
 import { AppError } from "./errors.js";
@@ -47,8 +50,17 @@ const weekdayOptions = [
 
 const settingsSchema = z.object({
   deliveryTitle: z.string().min(1).max(80).optional(),
-  deliveryDays: z.array(z.enum(weekdayOptions)).min(1).max(7).optional()
+  deliveryDays: z.array(z.enum(weekdayOptions)).min(1).max(7).optional(),
+  headerImageUrl: z.string().min(1).max(500).nullable().optional()
 });
+
+const imageTypes = new Map([
+  ["image/jpeg", "jpg"],
+  ["image/png", "png"],
+  ["image/webp", "webp"]
+]);
+
+const uploadRoot = process.env.UPLOAD_DIR ?? path.resolve("uploads");
 
 router.get("/health", (_request, response) => {
   response.json({ ok: true });
@@ -58,6 +70,7 @@ router.get("/api/settings", asyncRoute(async (_request, response) => {
   const settings = await getStoreSettings();
   response.json({
     storeName: config.storeName,
+    headerImageUrl: settings.headerImageUrl,
     deliveryTitle: settings.deliveryTitle,
     deliveryDays: settings.deliveryDays,
     deliveryFee: config.deliveryFee,
@@ -73,11 +86,34 @@ router.patch("/api/settings", asyncRoute(async (request, response) => {
     update: body,
     create: {
       id: "default",
+      headerImageUrl: body.headerImageUrl ?? null,
       deliveryTitle: body.deliveryTitle ?? "Ближайшие дни доставки",
       deliveryDays: body.deliveryDays ?? ["Вторник", "Четверг", "Суббота"]
     }
   });
   response.json(settings);
+}));
+
+router.post("/api/admin/uploads", asyncRoute(async (request, response) => {
+  const kind = z.enum(["header", "product"]).default("product").parse(request.query.kind);
+  const contentType = String(request.headers["content-type"] ?? "").split(";")[0].toLowerCase();
+  const ext = imageTypes.get(contentType);
+
+  if (!ext) {
+    throw new AppError("Supported image formats: JPG, PNG, WEBP", 415);
+  }
+
+  if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+    throw new AppError("Image file was not received", 400);
+  }
+
+  const uploadDir = path.join(uploadRoot, kind);
+  await fs.mkdir(uploadDir, { recursive: true });
+
+  const filename = `${Date.now()}-${crypto.randomUUID()}.${ext}`;
+  await fs.writeFile(path.join(uploadDir, filename), request.body);
+
+  response.status(201).json({ url: `/uploads/${kind}/${filename}` });
 }));
 
 router.get("/api/categories", asyncRoute(async (_request, response) => {
@@ -206,7 +242,10 @@ const productSchema = z.object({
   discountPrice: z.number().nonnegative().nullable().optional(),
   unit: z.string().min(1),
   stockQuantity: z.number().nonnegative(),
-  imageUrl: z.string().url().nullable().optional(),
+  imageUrl: z.string().min(1).max(500).refine(
+    (value) => value.startsWith("/uploads/") || /^https?:\/\//.test(value),
+    "Image URL must be an uploaded file path or http URL"
+  ).nullable().optional(),
   isActive: z.boolean().optional()
 });
 
@@ -307,6 +346,7 @@ async function getStoreSettings() {
     update: {},
     create: {
       id: "default",
+      headerImageUrl: null,
       deliveryTitle: "Ближайшие дни доставки",
       deliveryDays: ["Вторник", "Четверг", "Суббота"]
     }

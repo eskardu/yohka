@@ -9,6 +9,10 @@ import { router } from "./routes.js";
 
 const app = express();
 
+app.set("json replacer", (_key: string, value: unknown) =>
+  typeof value === "bigint" ? value.toString() : value
+);
+
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -20,6 +24,12 @@ app.use(
   })
 );
 app.use(cors({ origin: config.corsOrigin === "*" ? true : config.corsOrigin }));
+const uploadDir = process.env.UPLOAD_DIR ?? path.resolve("uploads");
+app.use("/uploads", express.static(uploadDir, { maxAge: "30d", immutable: true }));
+app.use(
+  "/api/admin/uploads",
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "8mb" })
+);
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan("dev"));
 app.use(router);

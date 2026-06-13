@@ -14,6 +14,7 @@ export const weekdayOptions = [
 
 export type Settings = {
   storeName: string;
+  headerImageUrl?: string | null;
   deliveryDays: string[];
   deliveryTitle?: string;
   deliveryFee: number;
@@ -38,13 +39,22 @@ export async function getSettings(): Promise<Settings> {
   return readJson<Settings>(response, "Не удалось загрузить настройки");
 }
 
-export async function updateSettings(payload: Partial<Pick<Settings, "deliveryDays" | "deliveryTitle">>) {
+export async function updateSettings(payload: Partial<Pick<Settings, "deliveryDays" | "deliveryTitle" | "headerImageUrl">>) {
   const response = await fetch(`${apiUrl}/api/settings`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
   return readJson<Settings>(response, "Не удалось сохранить настройки");
+}
+
+export async function uploadImage(file: File, kind: "header" | "product") {
+  const response = await fetch(`${apiUrl}/api/admin/uploads?kind=${kind}`, {
+    method: "POST",
+    headers: { "Content-Type": file.type },
+    body: file
+  });
+  return readJson<{ url: string }>(response, "Не удалось загрузить фото");
 }
 
 export async function getCategories() {
