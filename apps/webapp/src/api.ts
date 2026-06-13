@@ -1,6 +1,8 @@
 import type { Category, Product } from "./types.js";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+const maxUploadBytes = 900 * 1024;
+const maxImageSide = 1600;
 
 export const weekdayOptions = [
   "Понедельник",
@@ -49,12 +51,74 @@ export async function updateSettings(payload: Partial<Pick<Settings, "deliveryDa
 }
 
 export async function uploadImage(file: File, kind: "header" | "product") {
+  const body = await prepareImageUpload(file);
   const response = await fetch(`${apiUrl}/api/admin/uploads?kind=${kind}`, {
     method: "POST",
-    headers: { "Content-Type": file.type },
-    body: file
+    headers: { "Content-Type": body.type },
+    body
   });
+  if (response.status === 413) {
+    throw new Error("Фото слишком большое. Попробуйте выбрать фото меньшего размера.");
+  }
   return readJson<{ url: string }>(response, "Не удалось загрузить фото");
+}
+
+async function prepareImageUpload(file: File): Promise<Blob> {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Выберите файл изображения.");
+  }
+
+  if (file.size <= maxUploadBytes && ["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    return file;
+  }
+
+  const image = await loadImage(file);
+  const scale = Math.min(1, maxImageSide / Math.max(image.width, image.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.width * scale));
+  canvas.height = Math.max(1, Math.round(image.height * scale));
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Не удалось подготовить фото к загрузке.");
+  }
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+  for (const quality of [0.82, 0.72, 0.62]) {
+    const blob = await canvasToBlob(canvas, "image/jpeg", quality);
+    if (blob.size <= maxUploadBytes || quality === 0.62) return blob;
+  }
+
+  throw new Error("Не удалось подготовить фото к загрузке.");
+}
+
+function loadImage(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Не удалось открыть фото. Попробуйте JPG, PNG или WEBP."));
+    };
+    image.src = objectUrl;
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+      reject(new Error("Не удалось подготовить фото к загрузке."));
+    }, type, quality);
+  });
 }
 
 export async function getCategories() {
