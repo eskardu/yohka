@@ -104,8 +104,14 @@ export async function createOrder(input: CheckoutInput) {
       });
     }
 
+    const lastQueueNumber = await tx.order.aggregate({
+      where: { status: { in: ["NEW", "ACCEPTED", "PREPARING"] } },
+      _max: { queueNumber: true }
+    });
+
     return tx.order.create({
       data: {
+        queueNumber: (lastQueueNumber._max.queueNumber ?? 0) + 1,
         userId: user.id,
         totalAmount: decimal(totalAmount),
         profitAmount: decimal(profitAmount),
@@ -125,7 +131,7 @@ export async function createOrder(input: CheckoutInput) {
   });
 
   notifyAdmins(order).catch((error) => {
-    console.error("Failed to notify admins about order", order.orderNumber, error);
+    console.error("Failed to notify admins about order", order.queueNumber, error);
   });
 
   return order;
@@ -152,7 +158,7 @@ export async function updateOrderStatus(id: string, status: OrderStatus) {
             : "Заказ доставлен, ждет на улице."
         );
       } catch (error) {
-        console.error("Failed to notify customer about order status", order.orderNumber, error);
+        console.error("Failed to notify customer about order status", order.queueNumber, error);
       }
     }
   }
@@ -232,7 +238,7 @@ export async function notifyAdmins(order: Awaited<ReturnType<typeof prisma.order
 
   for (const result of results) {
     if (result.status === "rejected") {
-      console.error("Failed to send admin order notification", order.orderNumber, result.reason);
+      console.error("Failed to send admin order notification", order.queueNumber, result.reason);
     }
   }
 }

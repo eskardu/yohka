@@ -51,6 +51,7 @@ function formatUnit(unit?: string | null) {
 }
 
 export function formatOrderMessage(order: FullOrder) {
+  const visibleOrderNumber = order.queueNumber ?? order.orderNumber;
   const items = order.items
     .map((item, index) => {
       const unit = formatUnit(item.product?.unit);
@@ -63,7 +64,7 @@ export function formatOrderMessage(order: FullOrder) {
   const username = order.user.username ? `@${order.user.username}` : "не указан";
 
   return [
-    `<b>Новый заказ #${order.orderNumber}</b>`,
+    `<b>Новый заказ #${visibleOrderNumber}</b>`,
     "",
     `<b>Клиент:</b> ${escapeHtml(username)}`,
     `<b>Оплата:</b> ${paymentLabels[order.paymentMethod]}`,

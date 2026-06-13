@@ -135,7 +135,11 @@ router.get("/api/products", asyncRoute(async (request, response) => {
 
 router.post("/api/orders", asyncRoute(async (request, response) => {
   const order = await createOrder(checkoutSchema.parse(request.body));
-  response.status(201).json(order);
+  response.status(201).json({
+    ...order,
+    systemOrderNumber: order.orderNumber,
+    orderNumber: order.queueNumber
+  });
 }));
 
 router.get("/api/orders", asyncRoute(async (request, response) => {
@@ -146,7 +150,11 @@ router.get("/api/orders", asyncRoute(async (request, response) => {
     orderBy: { createdAt: "desc" },
     take: 100
   });
-  response.json(orders);
+  response.json(orders.map((order) => ({
+    ...order,
+    systemOrderNumber: order.orderNumber,
+    orderNumber: order.queueNumber
+  })));
 }));
 
 router.get("/api/orders/:id", asyncRoute(async (request, response) => {
@@ -156,7 +164,11 @@ router.get("/api/orders/:id", asyncRoute(async (request, response) => {
     include: { user: true, items: true }
   });
   if (!order) throw new AppError("Order not found", 404);
-  response.json(order);
+  response.json({
+    ...order,
+    systemOrderNumber: order.orderNumber,
+    orderNumber: order.queueNumber
+  });
 }));
 
 router.post("/api/orders/notify-delivery-soon", asyncRoute(async (_request, response) => {
@@ -168,7 +180,11 @@ router.patch("/api/orders/:id/status", asyncRoute(async (request, response) => {
   const orderId = z.string().parse(request.params.id);
   const body = z.object({ status: z.nativeEnum(OrderStatus) }).parse(request.body);
   const order = await updateOrderStatus(orderId, body.status);
-  response.json(order);
+  response.json({
+    ...order,
+    systemOrderNumber: order.orderNumber,
+    orderNumber: order.queueNumber
+  });
 }));
 
 router.get("/api/admin/stats", asyncRoute(async (request, response) => {
@@ -304,7 +320,7 @@ router.get("/api/admin/routes/today", asyncRoute(async (_request, response) => {
 
   const points = orders.map((order) => ({
     id: order.id,
-    orderNumber: order.orderNumber,
+    orderNumber: order.queueNumber,
     latitude: Number(order.latitude),
     longitude: Number(order.longitude)
   }));

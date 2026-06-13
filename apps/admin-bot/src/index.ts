@@ -115,11 +115,12 @@ bot.action(/^order:(.+):(ON_DELIVERY|DELIVERED|CANCELLED)$/, async (ctx) => {
   await ctx.answerCbQuery("Готово");
 
   if (status === "DELIVERED") {
-    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-    await ctx.reply(
-      `Заказ #${order.orderNumber}: клиенту отправлено уведомление "Заказ доставлен, ждет на улице".`,
-      adminMenu
-    );
+    try {
+      await ctx.deleteMessage();
+    } catch (error) {
+      console.error("Failed to delete delivered order message", error);
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+    }
     return;
   }
 

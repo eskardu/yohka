@@ -75,6 +75,7 @@ model Product {
 model Order {
   id              String        @id @default(cuid())
   orderNumber     Int           @unique @default(autoincrement())
+  queueNumber     Int           @default(1)
   userId          String
   status          OrderStatus   @default(NEW)
   totalAmount     Decimal       @db.Decimal(12, 2)
