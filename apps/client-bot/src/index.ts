@@ -45,7 +45,11 @@ bot.launch(async () => {
   try {
     await bot.telegram.deleteMyCommands();
     await bot.telegram.setChatMenuButton({
-      menuButton: { type: "default" }
+      menuButton: {
+        type: "web_app",
+        text: "Открыть магазин",
+        web_app: { url: webAppUrl }
+      }
     });
   } catch (error) {
     console.error("Failed to clear client bot menu", error);
