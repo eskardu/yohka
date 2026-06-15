@@ -8,7 +8,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { AppError } from "./errors.js";
 import { buildGoogleMapsDirectionsUrl } from "./maps.js";
-import { createOrder, notifyDeliverySoonForActiveOrders, updateOrderStatus } from "./services/orders.js";
+import { createOrder, notifyCustomerEta, notifyDeliverySoonForActiveOrders, updateOrderStatus } from "./services/orders.js";
 
 export const router = Router();
 
@@ -62,6 +62,12 @@ const settingsSchema = z.object({
   deliveryTitle: z.string().min(1).max(80).optional(),
   deliveryDays: z.array(z.enum(weekdayOptions)).min(1).max(7).optional(),
   headerImageUrl: z.string().min(1).max(500).nullable().optional()
+});
+
+const etaNotificationSchema = z.object({
+  minutes: z.number().refine((value) => [5, 10, 15, 20, 25].includes(value), {
+    message: "ETA must be 5, 10, 15, 20, or 25 minutes"
+  })
 });
 
 const imageTypes = new Map([
@@ -183,6 +189,13 @@ router.get("/api/orders/:id", asyncRoute(async (request, response) => {
 
 router.post("/api/orders/notify-delivery-soon", asyncRoute(async (_request, response) => {
   const result = await notifyDeliverySoonForActiveOrders();
+  response.json(result);
+}));
+
+router.post("/api/orders/:id/notify-eta", asyncRoute(async (request, response) => {
+  const orderId = z.string().parse(request.params.id);
+  const body = etaNotificationSchema.parse(request.body);
+  const result = await notifyCustomerEta(orderId, body.minutes);
   response.json(result);
 }));
 
@@ -330,7 +343,7 @@ router.get("/api/admin/routes/today", asyncRoute(async (_request, response) => {
 
   const orders = await prisma.order.findMany({
     where: {
-      status: { in: ["ACCEPTED", "ON_DELIVERY"] },
+      status: { in: ["NEW", "ACCEPTED", "PREPARING", "ON_DELIVERY"] },
       createdAt: { gte: start, lt: end }
     },
     orderBy: { createdAt: "asc" }

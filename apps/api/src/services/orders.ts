@@ -228,6 +228,51 @@ export async function notifyDeliverySoonForActiveOrders() {
   };
 }
 
+export async function notifyCustomerEta(id: string, minutes: number) {
+  const order = await prisma.order.findUnique({
+    where: { id },
+    include: { user: true }
+  });
+
+  if (!order) {
+    throw new AppError("Order not found", 404);
+  }
+
+  const telegram = getClientTelegram();
+  if (!telegram) {
+    return {
+      orderNumber: order.queueNumber,
+      customerNotificationSent: false,
+      customerNotificationError: "Client bot token is not configured"
+    };
+  }
+
+  try {
+    await telegram.sendMessage(
+      Number(order.user.telegramId),
+      [
+        "🚚 Курьер уже выехал к вам.",
+        `Примерно через ${minutes} минут будет у вас.`,
+        `К оплате: ${formatMoney(order.totalAmount.toString())}`
+      ].join("\n")
+    );
+
+    return {
+      orderNumber: order.queueNumber,
+      customerNotificationSent: true,
+      customerNotificationError: null
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown Telegram error";
+    console.error("Failed to notify customer about route ETA", order.queueNumber, error);
+    return {
+      orderNumber: order.queueNumber,
+      customerNotificationSent: false,
+      customerNotificationError: message
+    };
+  }
+}
+
 export async function notifyAdmins(order: Awaited<ReturnType<typeof prisma.order.create>>) {
   const telegram = getAdminTelegram();
   if (!telegram || config.adminTelegramIds.length === 0) return;

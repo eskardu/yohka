@@ -16,6 +16,10 @@ if (!token) {
 const bot = new Telegraf(token);
 
 type StatPeriod = "today" | "week" | "month" | "year";
+type RouteOrder = { id: string; orderNumber: number; latitude: number; longitude: number };
+type TodayRoute = { url: string; sorted: RouteOrder[] };
+
+const etaMinutes = [5, 10, 15, 20, 25] as const;
 
 const adminMenu = {
   reply_markup: {
@@ -129,8 +133,41 @@ bot.action("route:today", async (ctx) => {
   await sendTodayRoute(ctx);
 });
 
+bot.action(/^eta:(.+):(5|10|15|20|25)$/, async (ctx) => {
+  const [, orderId, minutesValue] = ctx.match;
+  const minutes = Number(minutesValue);
+  const response = await fetch(`${apiBaseUrl}/api/orders/${orderId}/notify-eta`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ minutes })
+  });
+
+  if (!response.ok) {
+    await ctx.answerCbQuery("Не удалось отправить уведомление");
+    return;
+  }
+
+  const result = await response.json() as {
+    orderNumber: number;
+    customerNotificationSent: boolean;
+    customerNotificationError?: string | null;
+  };
+
+  await ctx.answerCbQuery("Готово");
+  const message = result.customerNotificationSent
+    ? `Клиенту заказа #${result.orderNumber} отправлено уведомление: примерно через ${minutes} минут.`
+    : `Заказ #${result.orderNumber}: уведомление не ушло. ${result.customerNotificationError ?? ""}`;
+  await ctx.editMessageText(message);
+});
+
 bot.action(/^order:(.+):(ON_DELIVERY|DELIVERED|CANCELLED)$/, async (ctx) => {
   const [, orderId, status] = ctx.match;
+  const nextRouteOrder = status === "DELIVERED"
+    ? await findNextRouteOrder(orderId).catch((error) => {
+      console.error("Failed to find next route order", error);
+      return null;
+    })
+    : null;
   const response = await fetch(`${apiBaseUrl}/api/orders/${orderId}/status`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -161,6 +198,9 @@ bot.action(/^order:(.+):(ON_DELIVERY|DELIVERED|CANCELLED)$/, async (ctx) => {
         `Заказ #${order.orderNumber}: статус изменен, но клиенту уведомление не ушло. ${order.customerNotificationError ?? ""}`,
         adminMenu
       );
+    }
+    if (nextRouteOrder) {
+      await promptNextCustomerEta(ctx, nextRouteOrder);
     }
     return;
   }
@@ -231,14 +271,10 @@ async function notifyDeliverySoon(ctx: Context) {
 }
 
 async function sendTodayRoute(ctx: Context) {
-  const response = await fetch(`${apiBaseUrl}/api/admin/routes/today`);
-  const route = await response.json() as {
-    url: string;
-    sorted: Array<{ orderNumber: number; latitude: number; longitude: number }>;
-  };
+  const route = await fetchTodayRoute();
 
   if (!route.sorted.length) {
-    await ctx.reply("На сегодня нет заказов со статусом принят/в доставке и геолокацией.", adminMenu);
+    await ctx.reply("На сегодня нет активных заказов с геолокацией.", adminMenu);
     return;
   }
 
@@ -250,6 +286,38 @@ async function sendTodayRoute(ctx: Context) {
     `Порядок доставки:\n${orderList}`,
     Markup.inlineKeyboard([
       Markup.button.url("Открыть общий маршрут", route.url)
+    ])
+  );
+}
+
+async function fetchTodayRoute() {
+  const response = await fetch(`${apiBaseUrl}/api/admin/routes/today`);
+
+  if (!response.ok) {
+    throw new Error(`Route request failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<TodayRoute>;
+}
+
+async function findNextRouteOrder(orderId: string) {
+  const route = await fetchTodayRoute();
+  const currentIndex = route.sorted.findIndex((order) => order.id === orderId);
+
+  if (currentIndex >= 0) {
+    return route.sorted[currentIndex + 1] ?? null;
+  }
+
+  return route.sorted.find((order) => order.id !== orderId) ?? null;
+}
+
+async function promptNextCustomerEta(ctx: Context, order: RouteOrder) {
+  await ctx.reply(
+    `Следующий клиент: заказ #${order.orderNumber}. Через сколько минут будете у него?`,
+    Markup.inlineKeyboard([
+      etaMinutes.map((minutes) =>
+        Markup.button.callback(`${minutes} мин`, `eta:${order.id}:${minutes}`)
+      )
     ])
   );
 }
