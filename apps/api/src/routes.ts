@@ -28,7 +28,7 @@ const checkoutSchema = z.object({
     })
     .optional(),
   customerName: z.string().min(2).max(100),
-  customerPhone: z.string().min(5).max(30),
+  customerPhone: z.string().trim().max(50).optional().transform((value) => value || "не указан"),
   customerComment: z.string().max(500).optional(),
   addressText: z.string().max(500).optional(),
   latitude: z.number().min(-90).max(90),
@@ -228,6 +228,14 @@ router.get("/api/admin/stats", asyncRoute(async (request, response) => {
     bestSellingProducts: [...byProduct.values()].sort((a, b) => b.quantity - a.quantity).slice(0, 5),
     mostProfitableProducts: [...byProduct.values()].sort((a, b) => b.profit - a.profit).slice(0, 5)
   });
+}));
+
+router.post("/api/admin/stats/reset", asyncRoute(async (_request, response) => {
+  const result = await prisma.order.deleteMany({
+    where: { status: { in: ["DELIVERED", "CANCELLED"] } }
+  });
+
+  response.json({ deletedOrders: result.count });
 }));
 
 router.get("/api/admin/customers/:id", asyncRoute(async (request, response) => {

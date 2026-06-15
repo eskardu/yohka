@@ -67,6 +67,7 @@ export function formatOrderMessage(order: FullOrder) {
     `<b>Новый заказ #${visibleOrderNumber}</b>`,
     "",
     `<b>Клиент:</b> ${escapeHtml(username)}`,
+    `<b>Контакт:</b> ${escapeHtml(order.customerPhone || "не указан")}`,
     `<b>Оплата:</b> ${paymentLabels[order.paymentMethod]}`,
     order.deliveryDay ? `<b>День доставки:</b> ${order.deliveryDay.toISOString().slice(0, 10)}` : "",
     "",

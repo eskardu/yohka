@@ -142,6 +142,11 @@ button {
   background: #dfe8df;
 }
 
+.product-card.out-of-stock img {
+  opacity: 0.62;
+  filter: grayscale(0.35);
+}
+
 .product-info {
   display: grid;
   gap: 6px;
@@ -198,6 +203,13 @@ button {
   background: #0f3b24;
   color: #fff;
   font-weight: 700;
+}
+
+.add-button:disabled,
+.quantity-control button:disabled {
+  background: #b9b9b9;
+  color: #fff;
+  cursor: not-allowed;
 }
 
 .minus-button {

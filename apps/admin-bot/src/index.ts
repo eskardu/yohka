@@ -21,7 +21,8 @@ const adminMenu = {
   reply_markup: {
     keyboard: [
       ["Скоро доставка"],
-      ["Общий маршрут", "Статистика"]
+      ["Общий маршрут", "Статистика"],
+      ["Сброс статистики"]
     ],
     resize_keyboard: true,
     is_persistent: true
@@ -37,6 +38,11 @@ const statsKeyboard = Markup.inlineKeyboard([
     Markup.button.callback("Месяц", "stats:month"),
     Markup.button.callback("Год", "stats:year")
   ]
+]);
+
+const resetStatsKeyboard = Markup.inlineKeyboard([
+  [Markup.button.callback("Да, сбросить статистику", "stats:reset:confirm")],
+  [Markup.button.callback("Отмена", "stats:reset:cancel")]
 ]);
 
 const statPeriodLabels: Record<StatPeriod, string> = {
@@ -73,6 +79,13 @@ bot.hears("Статистика", async (ctx) => {
   await showStatsMenu(ctx);
 });
 
+bot.hears("Сброс статистики", async (ctx) => {
+  await ctx.reply(
+    "Сбросить статистику? Будут удалены доставленные и отмененные заказы. Активные заказы останутся.",
+    resetStatsKeyboard
+  );
+});
+
 bot.action("orders:new", async (ctx) => {
   await ctx.answerCbQuery();
   await sendOrders(ctx, "NEW");
@@ -91,6 +104,24 @@ bot.action("orders:notify-soon", async (ctx) => {
 bot.action(/^stats:(today|week|month|year)$/, async (ctx) => {
   await ctx.answerCbQuery();
   await sendStats(ctx, ctx.match[1] as StatPeriod);
+});
+
+bot.action("stats:reset:cancel", async (ctx) => {
+  await ctx.answerCbQuery("Отменено");
+  await ctx.editMessageText("Сброс статистики отменен.");
+});
+
+bot.action("stats:reset:confirm", async (ctx) => {
+  await ctx.answerCbQuery();
+  const response = await fetch(`${apiBaseUrl}/api/admin/stats/reset`, { method: "POST" });
+
+  if (!response.ok) {
+    await ctx.editMessageText("Не удалось сбросить статистику.");
+    return;
+  }
+
+  const result = await response.json() as { deletedOrders: number };
+  await ctx.editMessageText(`Статистика сброшена. Удалено заказов: ${result.deletedOrders}.`);
 });
 
 bot.action("route:today", async (ctx) => {
@@ -239,9 +270,8 @@ async function sendOrders(ctx: Context, status: OrderStatus) {
     await ctx.reply(
       [
         `Заказ #${order.orderNumber}`,
-        `Клиент: ${order.customerName}`,
-        `Телефон: ${order.customerPhone}`,
-        `Telegram: ${username}`,
+        `Клиент: ${username}`,
+        `Контакт: ${order.customerPhone || "не указан"}`,
         "",
         "Товары:",
         items,

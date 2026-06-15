@@ -71,7 +71,11 @@ export function App() {
 
   function changeQuantity(productId: string, delta: number) {
     setCart((current) => {
+      const product = products.find((item) => item.id === productId);
+      const stock = product ? Number(product.stockQuantity) : 0;
       const existing = current.find((line) => line.productId === productId);
+      const currentQuantity = existing?.quantity ?? 0;
+      if (delta > 0 && (!product || stock <= 0 || currentQuantity >= stock)) return current;
       if (!existing && delta > 0) return [...current, { productId, quantity: delta }];
       return current
         .map((line) =>
@@ -113,8 +117,10 @@ export function App() {
             {shownProducts.map((product) => {
               const quantity = cart.find((line) => line.productId === product.id)?.quantity ?? 0;
               const price = product.discountPrice ?? product.salePrice;
+              const stock = Number(product.stockQuantity);
+              const canAdd = stock > 0 && quantity < stock;
               return (
-                <article className="product-card" key={product.id}>
+                <article className={`product-card${stock <= 0 ? " out-of-stock" : ""}`} key={product.id}>
                   <img src={imageSrc(product.imageUrl) ?? fallbackImage(product.name)} alt="" />
                   {product.badge && <span className="product-badge">{formatBadge(product.badge)}</span>}
                   <div className="product-info">
@@ -126,7 +132,7 @@ export function App() {
                   </div>
                   {quantity > 0 && <span className="product-count">{quantity}</span>}
                   <div className="product-actions" aria-label={`Количество ${product.name}`}>
-                    <button className="add-button" onClick={() => changeQuantity(product.id, 1)}>
+                    <button className="add-button" onClick={() => changeQuantity(product.id, 1)} disabled={!canAdd}>
                       <Plus size={16} />
                       <span>Добавить</span>
                     </button>
@@ -231,6 +237,7 @@ function CartView({
 }) {
   const byId = new Map(products.map((product) => [product.id, product]));
   const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+  const [contact, setContact] = useState("");
   const [comment, setComment] = useState("");
   const [deliveryDay] = useState(deliveryDays[0] ?? "");
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -257,6 +264,16 @@ function CartView({
       return;
     }
 
+    const unavailableLine = cart.find((line) => {
+      const product = byId.get(line.productId);
+      return !product || Number(product.stockQuantity) < line.quantity;
+    });
+    if (unavailableLine) {
+      const productName = byId.get(unavailableLine.productId)?.name ?? "товар";
+      setError(`Товар "${productName}" нет в нужном количестве.`);
+      return;
+    }
+
     setSubmitting(true);
     setError("");
     try {
@@ -264,7 +281,7 @@ function CartView({
         initData: window.Telegram?.WebApp?.initData,
         telegramUser: tgUser ?? { id: 100000001, first_name: "Dev", username: "dev_user" },
         customerName: tgUser?.first_name ?? "Telegram client",
-        customerPhone: "not provided",
+        customerPhone: contact.trim() || "не указан",
         customerComment: comment,
         addressText: undefined,
         latitude: location.latitude,
@@ -292,6 +309,7 @@ function CartView({
         const product = byId.get(line.productId);
         if (!product) return null;
         const price = Number(product.discountPrice ?? product.salePrice);
+        const canAdd = line.quantity < Number(product.stockQuantity);
         return (
           <div className="cart-line" key={line.productId}>
             <div>
@@ -301,12 +319,13 @@ function CartView({
             <div className="quantity-control compact">
               <button onClick={() => onChange(product.id, -1)}><Minus size={16} /></button>
               <span>{line.quantity}</span>
-              <button onClick={() => onChange(product.id, 1)}><Plus size={16} /></button>
+              <button onClick={() => onChange(product.id, 1)} disabled={!canAdd}><Plus size={16} /></button>
             </div>
           </div>
         );
       })}
       <Totals subtotal={subtotal} deliveryFee={deliveryFee} finalTotal={finalTotal} />
+      <label>Контакт<input value={contact} onChange={(event) => setContact(event.target.value)} placeholder="+966..." /></label>
       <label>Комментарий<textarea value={comment} onChange={(event) => setComment(event.target.value)} /></label>
       <p className="location-hint">Для подтверждения нажмите отправить местоположение</p>
       <button className={`location${location ? " received" : ""}`} onClick={requestLocation}>
