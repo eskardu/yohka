@@ -1,9 +1,9 @@
 import { Prisma, type OrderStatus } from "@prisma/client";
 import { prisma } from "@yohkar/database";
-import type { CheckoutInput } from "@yohkar/shared";
+import { formatMoney, type CheckoutInput } from "@yohkar/shared";
 import { config } from "../config.js";
 import { AppError } from "../errors.js";
-import { formatOrderMessage } from "../formatters.js";
+import { formatCustomerOrderConfirmation, formatOrderMessage } from "../formatters.js";
 import {
   getAdminTelegram,
   getClientTelegram,
@@ -141,6 +141,9 @@ export async function createOrder(input: CheckoutInput) {
   notifyAdmins(order).catch((error) => {
     console.error("Failed to notify admins about order", order.queueNumber, error);
   });
+  notifyCustomerAboutCreatedOrder(order).catch((error) => {
+    console.error("Failed to notify customer about created order", order.queueNumber, error);
+  });
 
   return order;
 }
@@ -165,8 +168,8 @@ export async function updateOrderStatus(id: string, status: OrderStatus) {
         await telegram.sendMessage(
           Number(order.user.telegramId),
           status === "ON_DELIVERY"
-            ? "Скоро заказ будет доставлен."
-            : "Заказ доставлен, ждет на улице."
+            ? "🚚 Скоро заказ будет доставлен."
+            : `📦✅ Заказ доставлен, ждет на улице.\nК оплате: ${formatMoney(order.totalAmount.toString())}`
         );
         customerNotificationSent = true;
       } catch (error) {
@@ -208,7 +211,7 @@ export async function notifyDeliverySoonForActiveOrders() {
 
   const chatIds = [...new Set(orders.map((order) => Number(order.user.telegramId)))];
   const results = await Promise.allSettled(
-    chatIds.map((chatId) => telegram.sendMessage(chatId, "Скоро заказ будет доставлен."))
+    chatIds.map((chatId) => telegram.sendMessage(chatId, "🚚 Скоро заказ будет доставлен."))
   );
   const failedUsers = results.filter((result) => result.status === "rejected").length;
 
@@ -258,4 +261,15 @@ export async function notifyAdmins(order: Awaited<ReturnType<typeof prisma.order
       console.error("Failed to send admin order notification", order.queueNumber, result.reason);
     }
   }
+}
+
+async function notifyCustomerAboutCreatedOrder(order: Parameters<typeof formatCustomerOrderConfirmation>[0]) {
+  const telegram = getClientTelegram();
+  if (!telegram) return;
+
+  await telegram.sendMessage(
+    Number(order.user.telegramId),
+    formatCustomerOrderConfirmation(order),
+    { parse_mode: "HTML" }
+  );
 }

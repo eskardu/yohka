@@ -82,3 +82,24 @@ export function formatOrderMessage(order: FullOrder) {
     .filter(Boolean)
     .join("\n");
 }
+
+export function formatCustomerOrderConfirmation(order: FullOrder) {
+  const visibleOrderNumber = order.queueNumber ?? order.orderNumber;
+  const items = order.items
+    .map((item, index) => {
+      const unit = formatUnit(item.product?.unit);
+      const quantity = formatQuantity(item.quantity);
+      const suffix = unit ? ` ${unit}` : "";
+      return `${index + 1}. <b>${escapeHtml(item.productNameSnapshot)}</b> ${quantity}${suffix}`;
+    })
+    .join("\n");
+
+  return [
+    `<b>Заказ #${visibleOrderNumber} оформлен</b>`,
+    "",
+    "<b>Товары:</b>",
+    items,
+    "",
+    `<b>К оплате: ${formatMoney(order.totalAmount.toString())}</b>`
+  ].join("\n");
+}
