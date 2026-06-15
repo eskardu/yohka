@@ -17,7 +17,9 @@ app.use(
   helmet({
     contentSecurityPolicy: {
       directives: {
+        "script-src": ["'self'", "https://telegram.org"],
         "img-src": ["'self'", "data:", "https:"],
+        "frame-ancestors": ["'self'", "https://web.telegram.org", "https://*.telegram.org"],
         "upgrade-insecure-requests": null
       }
     }
