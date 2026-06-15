@@ -260,12 +260,7 @@ function CartView({
 
   async function submitOrder() {
     const telegramWebApp = window.Telegram?.WebApp;
-    const fallbackUser = import.meta.env.DEV ? { id: 100000001, first_name: "Dev", username: "dev_user" } : undefined;
-
-    if (!telegramWebApp?.initData && !tgUser && !fallbackUser) {
-      setError("Откройте магазин через клиентский бот Telegram.");
-      return;
-    }
+    const fallbackUser = { id: 100000001, first_name: "Dev", username: "dev_user" };
 
     if (!location) {
       setError("Сначала отправьте местоположение.");

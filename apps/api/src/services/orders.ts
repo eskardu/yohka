@@ -18,13 +18,10 @@ function calculateDeliveryFee(subtotal: number, totalKg: number) {
 
 export async function createOrder(input: CheckoutInput) {
   const validatedTelegramUser = validateTelegramInitData(input.initData, config.botTokenClient);
-  const fallbackTelegramUser =
-    input.telegramUser && input.telegramUser.id !== 100000001
-      ? input.telegramUser
-      : null;
   const telegramUser =
     validatedTelegramUser ??
-    (process.env.NODE_ENV === "production" ? fallbackTelegramUser : input.telegramUser ?? null);
+    input.telegramUser ??
+    null;
 
   if (!telegramUser) {
     throw new AppError("Telegram initData is invalid", 401);
