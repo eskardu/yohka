@@ -11,7 +11,7 @@ const adminTelegramIds = (import.meta.env.VITE_ADMIN_TELEGRAM_IDS ?? "")
   .split(",")
   .map((id: string) => id.trim())
   .filter(Boolean);
-const adminPin = import.meta.env.VITE_ADMIN_PIN ?? "1234";
+const adminPin = import.meta.env.VITE_ADMIN_PIN ?? "oburg2026";
 const apiAssetBase = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
 const unitOptions = [
@@ -29,6 +29,26 @@ const badgeOptions = [
   { value: "2+1", label: "2+1" },
   { value: "3+1", label: "3+1" }
 ] as const;
+
+function getTelegramFallbackFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const id = Number(params.get("tg_id"));
+  const authDate = params.get("tg_auth");
+  const sig = params.get("tg_sig");
+
+  if (!Number.isSafeInteger(id) || id <= 0 || !authDate || !sig) {
+    return undefined;
+  }
+
+  return {
+    id,
+    first_name: params.get("tg_first_name") || undefined,
+    last_name: params.get("tg_last_name") || undefined,
+    username: params.get("tg_username") || undefined,
+    auth_date: authDate,
+    sig
+  };
+}
 
 export function App() {
   const [view, setView] = useState<View>("catalog");
@@ -260,7 +280,15 @@ function CartView({
 
   async function submitOrder() {
     const telegramWebApp = window.Telegram?.WebApp;
-    const fallbackUser = { id: 100000001, first_name: "Dev", username: "dev_user" };
+    const telegramFallback = getTelegramFallbackFromUrl();
+    const fallbackUser = telegramFallback
+      ? {
+          id: telegramFallback.id,
+          first_name: telegramFallback.first_name,
+          last_name: telegramFallback.last_name,
+          username: telegramFallback.username
+        }
+      : { id: 100000001, first_name: "Dev", username: "dev_user" };
 
     if (!location) {
       setError("Сначала отправьте местоположение.");
@@ -282,8 +310,9 @@ function CartView({
     try {
       const order = await postOrder({
         initData: telegramWebApp?.initData,
+        telegramFallback,
         telegramUser: tgUser ?? fallbackUser,
-        customerName: tgUser?.first_name ?? "Telegram client",
+        customerName: tgUser?.first_name ?? telegramFallback?.first_name ?? "Telegram client",
         customerPhone: contact.trim() || "не указан",
         customerComment: comment,
         addressText: undefined,

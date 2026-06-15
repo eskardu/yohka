@@ -19,6 +19,16 @@ const asyncRoute = (handler: RequestHandler): RequestHandler =>
 
 const checkoutSchema = z.object({
   initData: z.string().optional(),
+  telegramFallback: z
+    .object({
+      id: z.number(),
+      first_name: z.string().optional(),
+      last_name: z.string().optional(),
+      username: z.string().optional(),
+      auth_date: z.string(),
+      sig: z.string()
+    })
+    .optional(),
   telegramUser: z
     .object({
       id: z.number(),

@@ -20,6 +20,14 @@ export type CartItemInput = {
 
 export type CheckoutInput = {
   initData?: string;
+  telegramFallback?: {
+    id: number;
+    first_name?: string;
+    last_name?: string;
+    username?: string;
+    auth_date: string;
+    sig: string;
+  };
   telegramUser?: {
     id: number;
     first_name?: string;

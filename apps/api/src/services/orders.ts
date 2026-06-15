@@ -4,7 +4,12 @@ import type { CheckoutInput } from "@yohkar/shared";
 import { config } from "../config.js";
 import { AppError } from "../errors.js";
 import { formatOrderMessage } from "../formatters.js";
-import { getAdminTelegram, getClientTelegram, validateTelegramInitData } from "../telegram.js";
+import {
+  getAdminTelegram,
+  getClientTelegram,
+  validateTelegramFallbackData,
+  validateTelegramInitData
+} from "../telegram.js";
 
 function decimal(value: number) {
   return new Prisma.Decimal(value);
@@ -18,8 +23,10 @@ function calculateDeliveryFee(subtotal: number, totalKg: number) {
 
 export async function createOrder(input: CheckoutInput) {
   const validatedTelegramUser = validateTelegramInitData(input.initData, config.botTokenClient);
+  const fallbackTelegramUser = validateTelegramFallbackData(input.telegramFallback, config.botTokenClient);
   const telegramUser =
     validatedTelegramUser ??
+    fallbackTelegramUser ??
     input.telegramUser ??
     null;
 
@@ -27,7 +34,7 @@ export async function createOrder(input: CheckoutInput) {
     throw new AppError("Telegram initData is invalid", 401);
   }
 
-  if (process.env.NODE_ENV === "production" && !validatedTelegramUser) {
+  if (process.env.NODE_ENV === "production" && !validatedTelegramUser && !fallbackTelegramUser) {
     console.warn("Order accepted with Telegram user fallback because initData is missing");
   }
 
