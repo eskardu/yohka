@@ -142,7 +142,11 @@ bot.action(/^order:(.+):(ON_DELIVERY|DELIVERED|CANCELLED)$/, async (ctx) => {
     return;
   }
 
-  const order = await response.json() as { orderNumber: number };
+  const order = await response.json() as {
+    orderNumber: number;
+    customerNotificationSent?: boolean | null;
+    customerNotificationError?: string | null;
+  };
   await ctx.answerCbQuery("Готово");
 
   if (status === "DELIVERED") {
@@ -151,6 +155,12 @@ bot.action(/^order:(.+):(ON_DELIVERY|DELIVERED|CANCELLED)$/, async (ctx) => {
     } catch (error) {
       console.error("Failed to delete delivered order message", error);
       await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+    }
+    if (order.customerNotificationSent === false) {
+      await ctx.reply(
+        `Заказ #${order.orderNumber}: статус изменен, но клиенту уведомление не ушло. ${order.customerNotificationError ?? ""}`,
+        adminMenu
+      );
     }
     return;
   }
@@ -166,10 +176,10 @@ bot.action(/^order:(.+):(ON_DELIVERY|DELIVERED|CANCELLED)$/, async (ctx) => {
         ]
       ]
     });
-    await ctx.reply(
-      `Заказ #${order.orderNumber}: клиенту отправлено уведомление "Скоро заказ будет доставлен".`,
-      adminMenu
-    );
+    const message = order.customerNotificationSent === false
+      ? `Заказ #${order.orderNumber}: статус изменен, но клиенту уведомление не ушло. ${order.customerNotificationError ?? ""}`
+      : `Заказ #${order.orderNumber}: клиенту отправлено уведомление "Скоро заказ будет доставлен".`;
+    await ctx.reply(message, adminMenu);
     return;
   }
 

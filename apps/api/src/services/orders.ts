@@ -17,17 +17,13 @@ function calculateDeliveryFee(subtotal: number, totalKg: number) {
 }
 
 export async function createOrder(input: CheckoutInput) {
+  const validatedTelegramUser = validateTelegramInitData(input.initData, config.botTokenClient);
   const telegramUser =
-    validateTelegramInitData(input.initData, config.botTokenClient) ??
-    input.telegramUser ??
-    null;
+    validatedTelegramUser ??
+    (process.env.NODE_ENV === "production" ? null : input.telegramUser ?? null);
 
   if (!telegramUser) {
     throw new AppError("Telegram initData is invalid", 401);
-  }
-
-  if (process.env.NODE_ENV === "production" && input.telegramUser && !input.initData) {
-    console.warn("Order accepted with Telegram user fallback because initData is missing");
   }
 
   if (!input.items.length) {
@@ -147,6 +143,9 @@ export async function updateOrderStatus(id: string, status: OrderStatus) {
     include: { user: true, items: true }
   });
 
+  let customerNotificationSent: boolean | null = null;
+  let customerNotificationError: string | null = null;
+
   if (status === "ON_DELIVERY" || status === "DELIVERED") {
     const telegram = getClientTelegram();
     if (telegram) {
@@ -157,13 +156,19 @@ export async function updateOrderStatus(id: string, status: OrderStatus) {
             ? "Скоро заказ будет доставлен."
             : "Заказ доставлен, ждет на улице."
         );
+        customerNotificationSent = true;
       } catch (error) {
+        customerNotificationSent = false;
+        customerNotificationError = error instanceof Error ? error.message : "Unknown Telegram error";
         console.error("Failed to notify customer about order status", order.queueNumber, error);
       }
+    } else {
+      customerNotificationSent = false;
+      customerNotificationError = "Client bot token is not configured";
     }
   }
 
-  return order;
+  return { ...order, customerNotificationSent, customerNotificationError };
 }
 
 export async function notifyDeliverySoonForActiveOrders() {
