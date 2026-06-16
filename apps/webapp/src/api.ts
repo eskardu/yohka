@@ -2,6 +2,7 @@ import type { Category, Product } from "./types.js";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 const maxUploadBytes = 900 * 1024;
+const maxDirectUploadBytes = 7.5 * 1024 * 1024;
 const maxImageSide = 1600;
 const supportedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const imageTypeByExtension = new Map([
@@ -77,7 +78,7 @@ async function prepareImageUpload(file: File): Promise<Blob> {
     throw new Error("Выберите файл изображения.");
   }
 
-  if (file.size <= maxUploadBytes) {
+  if (file.size <= maxDirectUploadBytes) {
     return file.type === imageType ? file : new Blob([file], { type: imageType });
   }
 
