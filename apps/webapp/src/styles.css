@@ -142,8 +142,8 @@ button {
   width: 100%;
   aspect-ratio: 1 / 1;
   height: auto;
-  object-fit: cover;
-  background: #dfe8df;
+  object-fit: contain;
+  background: #fff;
 }
 
 .product-card.out-of-stock img {
@@ -611,8 +611,9 @@ input[type="file"] {
 .admin-product-image img {
   width: 74px;
   height: 74px;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 6px;
+  background: #fff;
 }
 
 .admin-product-image span {
