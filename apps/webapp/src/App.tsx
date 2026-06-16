@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronLeft, LocateFixed, Minus, Pencil, Plus, Settings, ShoppingCart, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, ChevronLeft, LocateFixed, Minus, Pencil, Plus, Settings, ShoppingCart, Trash2 } from "lucide-react";
 import { formatMoney } from "@yohkar/shared";
 import { getCartTotals } from "./cart.js";
-import { createProduct, deactivateProduct, getCategories, getProducts, getSettings, postOrder, updateProduct, updateSettings, uploadImage, weekdayOptions, type Settings as AppSettings } from "./api.js";
+import { createProduct, deactivateProduct, getCategories, getProducts, getSettings, postOrder, reorderProducts, updateProduct, updateSettings, uploadImage, weekdayOptions, type Settings as AppSettings } from "./api.js";
 import type { CartLine, Category, Product } from "./types.js";
 
 type View = "catalog" | "cart" | "success" | "admin" | "admin-login";
@@ -65,9 +65,37 @@ export function App() {
   const canShowAdminButton = !telegramUserId || isTelegramAdmin || adminUnlocked;
 
   useEffect(() => {
-    window.Telegram?.WebApp?.ready();
-    window.Telegram?.WebApp?.expand();
-    window.Telegram?.WebApp?.requestFullscreen?.();
+    const webApp = window.Telegram?.WebApp;
+    if (!webApp) return;
+
+    const mobilePlatforms = new Set(["ios", "android", "android_x"]);
+    const isMobileTelegram = !webApp.platform || mobilePlatforms.has(webApp.platform);
+    const updateTelegramInsets = () => {
+      const topInset = Math.max(
+        webApp.safeAreaInset?.top ?? 0,
+        webApp.contentSafeAreaInset?.top ?? 0
+      );
+      const topOffset = isMobileTelegram ? Math.max(topInset, 96) : topInset;
+      document.documentElement.style.setProperty("--tg-mini-app-top-offset", `${topOffset}px`);
+      document.body.classList.toggle("telegram-mobile-webapp", isMobileTelegram);
+    };
+
+    webApp.ready();
+    webApp.expand();
+    webApp.requestFullscreen?.();
+    updateTelegramInsets();
+    window.setTimeout(updateTelegramInsets, 300);
+    webApp.onEvent?.("viewportChanged", updateTelegramInsets);
+    webApp.onEvent?.("safeAreaChanged", updateTelegramInsets);
+    webApp.onEvent?.("contentSafeAreaChanged", updateTelegramInsets);
+
+    return () => {
+      webApp.offEvent?.("viewportChanged", updateTelegramInsets);
+      webApp.offEvent?.("safeAreaChanged", updateTelegramInsets);
+      webApp.offEvent?.("contentSafeAreaChanged", updateTelegramInsets);
+      document.documentElement.style.removeProperty("--tg-mini-app-top-offset");
+      document.body.classList.remove("telegram-mobile-webapp");
+    };
   }, []);
 
   useEffect(() => {
@@ -546,6 +574,42 @@ function AdminProductsView({
     }
   }
 
+  async function moveProduct(productId: string, direction: "up" | "down" | "left" | "right") {
+    const currentIndex = products.findIndex((product) => product.id === productId);
+    if (currentIndex < 0) return;
+
+    const columns = 2;
+    const targetIndex =
+      direction === "up"
+        ? currentIndex - columns
+        : direction === "down"
+          ? currentIndex + columns
+          : direction === "left"
+            ? currentIndex - 1
+            : currentIndex + 1;
+    const isRowEdge =
+      (direction === "left" && currentIndex % columns === 0) ||
+      (direction === "right" && currentIndex % columns === columns - 1);
+
+    if (isRowEdge || targetIndex < 0 || targetIndex >= products.length) return;
+
+    const nextProducts = [...products];
+    [nextProducts[currentIndex], nextProducts[targetIndex]] = [nextProducts[targetIndex], nextProducts[currentIndex]];
+
+    onProductsChange(nextProducts);
+    setMessage("");
+    setError("");
+
+    try {
+      const savedProducts = await reorderProducts(nextProducts.map((product) => product.id));
+      onProductsChange(savedProducts);
+      setMessage("Порядок товаров обновлен.");
+    } catch (err) {
+      onProductsChange(await getProducts());
+      setError(err instanceof Error ? err.message : "Не удалось изменить порядок товаров");
+    }
+  }
+
   async function addDeliveryDay() {
     if (!settings || !newDeliveryDay) return;
     setMessage("");
@@ -686,7 +750,7 @@ function AdminProductsView({
       </section>
 
       <section className="admin-list">
-        {products.map((product) => (
+        {products.map((product, index) => (
           <article className="admin-product" key={product.id}>
             <div className="admin-product-image">
               <img src={imageSrc(product.imageUrl) ?? fallbackImage(product.name)} alt="" />
@@ -698,6 +762,12 @@ function AdminProductsView({
               <p>Остаток: {Number(product.stockQuantity)}</p>
             </div>
             <div className="admin-actions">
+              <div className="admin-move-actions" aria-label="Порядок товара">
+                <button onClick={() => moveProduct(product.id, "up")} disabled={index < 2} aria-label="Переместить вверх"><ArrowUp size={14} /></button>
+                <button onClick={() => moveProduct(product.id, "left")} disabled={index % 2 === 0} aria-label="Переместить влево"><ArrowLeft size={14} /></button>
+                <button onClick={() => moveProduct(product.id, "right")} disabled={index % 2 === 1 || index === products.length - 1} aria-label="Переместить вправо"><ArrowRight size={14} /></button>
+                <button onClick={() => moveProduct(product.id, "down")} disabled={index + 2 >= products.length} aria-label="Переместить вниз"><ArrowDown size={14} /></button>
+              </div>
               <button onClick={() => editProduct(product)} aria-label="Редактировать"><Pencil size={16} /></button>
               <button onClick={() => hideProduct(product.id)} aria-label="Скрыть"><Trash2 size={16} /></button>
             </div>

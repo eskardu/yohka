@@ -30,7 +30,7 @@ const uploadDir = process.env.UPLOAD_DIR ?? path.resolve("uploads");
 app.use("/uploads", express.static(uploadDir, { maxAge: "30d", immutable: true }));
 app.use(
   "/api/admin/uploads",
-  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "8mb" })
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp", "application/octet-stream"], limit: "8mb" })
 );
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan("dev"));

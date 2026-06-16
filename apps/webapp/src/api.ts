@@ -3,6 +3,13 @@ import type { Category, Product } from "./types.js";
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 const maxUploadBytes = 900 * 1024;
 const maxImageSide = 1600;
+const supportedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const imageTypeByExtension = new Map([
+  ["jpg", "image/jpeg"],
+  ["jpeg", "image/jpeg"],
+  ["png", "image/png"],
+  ["webp", "image/webp"]
+]);
 
 export const weekdayOptions = [
   "Понедельник",
@@ -64,12 +71,14 @@ export async function uploadImage(file: File, kind: "header" | "product") {
 }
 
 async function prepareImageUpload(file: File): Promise<Blob> {
-  if (!file.type.startsWith("image/")) {
+  const imageType = getSupportedImageType(file);
+
+  if (!imageType) {
     throw new Error("Выберите файл изображения.");
   }
 
-  if (file.size <= maxUploadBytes && ["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-    return file;
+  if (file.size <= maxUploadBytes) {
+    return file.type === imageType ? file : new Blob([file], { type: imageType });
   }
 
   const image = await loadImage(file);
@@ -90,6 +99,13 @@ async function prepareImageUpload(file: File): Promise<Blob> {
   }
 
   throw new Error("Не удалось подготовить фото к загрузке.");
+}
+
+function getSupportedImageType(file: File) {
+  if (supportedImageTypes.has(file.type)) return file.type;
+
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  return extension ? imageTypeByExtension.get(extension) : undefined;
 }
 
 function loadImage(file: File) {
@@ -178,4 +194,13 @@ export async function deactivateProduct(productId: string) {
     method: "PATCH"
   });
   return readJson<Product>(response, "Не удалось скрыть товар");
+}
+
+export async function reorderProducts(orderedIds: string[]) {
+  const response = await fetch(`${apiUrl}/api/admin/products/reorder`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orderedIds })
+  });
+  return readJson<Product[]>(response, "Не удалось изменить порядок товаров");
 }

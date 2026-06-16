@@ -1,5 +1,13 @@
 export type TelegramWebApp = {
   initData: string;
+  platform?: string;
+  isFullscreen?: boolean;
+  safeAreaInset?: {
+    top?: number;
+  };
+  contentSafeAreaInset?: {
+    top?: number;
+  };
   initDataUnsafe?: {
     user?: {
       id: number;
@@ -11,6 +19,8 @@ export type TelegramWebApp = {
   ready: () => void;
   expand: () => void;
   requestFullscreen?: () => void;
+  onEvent?: (eventType: "viewportChanged" | "safeAreaChanged" | "contentSafeAreaChanged", eventHandler: () => void) => void;
+  offEvent?: (eventType: "viewportChanged" | "safeAreaChanged" | "contentSafeAreaChanged", eventHandler: () => void) => void;
   close: () => void;
 };
 
@@ -40,6 +50,7 @@ export type Product = {
   unit: string;
   stockQuantity: string;
   imageUrl: string | null;
+  sortOrder: number;
 };
 
 export type CartLine = {

@@ -113,14 +113,15 @@ router.patch("/api/settings", asyncRoute(async (request, response) => {
 router.post("/api/admin/uploads", asyncRoute(async (request, response) => {
   const kind = z.enum(["header", "product"]).default("product").parse(request.query.kind);
   const contentType = String(request.headers["content-type"] ?? "").split(";")[0].toLowerCase();
-  const ext = imageTypes.get(contentType);
-
-  if (!ext) {
-    throw new AppError("Supported image formats: JPG, PNG, WEBP", 415);
-  }
 
   if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
     throw new AppError("Image file was not received", 400);
+  }
+
+  const ext = imageTypes.get(contentType) ?? detectImageExtension(request.body);
+
+  if (!ext) {
+    throw new AppError("Supported image formats: JPG, PNG, WEBP", 415);
   }
 
   const uploadDir = path.join(uploadRoot, kind);
@@ -144,7 +145,7 @@ router.get("/api/products", asyncRoute(async (request, response) => {
   const categoryId = typeof request.query.categoryId === "string" ? request.query.categoryId : undefined;
   const products = await prisma.product.findMany({
     where: { isActive: true, ...(categoryId ? { categoryId } : {}) },
-    orderBy: { name: "asc" }
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }]
   });
   response.json(products);
 }));
@@ -289,6 +290,7 @@ const productSchema = z.object({
   discountPrice: z.number().nonnegative().nullable().optional(),
   unit: z.string().min(1),
   stockQuantity: z.number().nonnegative(),
+  sortOrder: z.number().int().nonnegative().optional(),
   imageUrl: z.string().min(1).max(500).refine(
     (value) => value.startsWith("/uploads/") || /^https?:\/\//.test(value),
     "Image URL must be an uploaded file path or http URL"
@@ -298,9 +300,11 @@ const productSchema = z.object({
 
 router.post("/api/admin/products", asyncRoute(async (request, response) => {
   const body = productSchema.parse(request.body);
+  const maxSortOrder = await prisma.product.aggregate({ _max: { sortOrder: true } });
   const product = await prisma.product.create({
     data: {
       ...body,
+      sortOrder: body.sortOrder ?? (maxSortOrder._max.sortOrder ?? -1) + 1,
       purchasePrice: new Prisma.Decimal(body.purchasePrice),
       salePrice: new Prisma.Decimal(body.salePrice),
       discountPrice: body.discountPrice == null ? null : new Prisma.Decimal(body.discountPrice),
@@ -308,6 +312,26 @@ router.post("/api/admin/products", asyncRoute(async (request, response) => {
     }
   });
   response.status(201).json(product);
+}));
+
+router.patch("/api/admin/products/reorder", asyncRoute(async (request, response) => {
+  const body = z.object({ orderedIds: z.array(z.string()).min(1) }).parse(request.body);
+
+  await prisma.$transaction(
+    body.orderedIds.map((id, index) =>
+      prisma.product.update({
+        where: { id },
+        data: { sortOrder: index }
+      })
+    )
+  );
+
+  const products = await prisma.product.findMany({
+    where: { isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }]
+  });
+
+  response.json(products);
 }));
 
 router.patch("/api/admin/products/:id", asyncRoute(async (request, response) => {
@@ -398,4 +422,34 @@ async function getStoreSettings() {
       deliveryDays: ["Вторник", "Четверг", "Суббота"]
     }
   });
+}
+
+function detectImageExtension(buffer: Buffer) {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return "jpg";
+  }
+
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return "png";
+  }
+
+  if (
+    buffer.length >= 12 &&
+    buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
+    buffer.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return "webp";
+  }
+
+  return undefined;
 }

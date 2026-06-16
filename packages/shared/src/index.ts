@@ -55,6 +55,7 @@ export type ProductDto = {
   unit: string;
   stockQuantity: string;
   imageUrl: string | null;
+  sortOrder: number;
 };
 
 export function formatMoney(value: number | string): string {

@@ -34,6 +34,10 @@ button {
   padding: 18px 16px 96px;
 }
 
+.telegram-mobile-webapp .app-shell {
+  padding-top: calc(18px + var(--tg-mini-app-top-offset, 96px));
+}
+
 .topbar {
   position: relative;
   display: flex;
@@ -136,7 +140,7 @@ button {
 
 .product-card img {
   width: 100%;
-  aspect-ratio: 1 / 0.78;
+  aspect-ratio: 1 / 1;
   height: auto;
   object-fit: cover;
   background: #dfe8df;
@@ -149,9 +153,9 @@ button {
 
 .product-info {
   display: grid;
-  gap: 6px;
-  min-height: 74px;
-  padding: 10px 10px 8px;
+  gap: 4px;
+  min-height: 64px;
+  padding: 8px 10px 6px;
 }
 
 .product-info h2,
@@ -631,6 +635,7 @@ input[type="file"] {
 .admin-actions {
   display: grid;
   gap: 8px;
+  justify-items: end;
 }
 
 .admin-actions button {
@@ -643,6 +648,22 @@ input[type="file"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.admin-move-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 32px);
+  gap: 4px;
+}
+
+.admin-actions .admin-move-actions button {
+  width: 32px;
+  height: 32px;
+}
+
+.admin-actions button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .success,
