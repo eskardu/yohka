@@ -87,6 +87,6 @@ try {
   Remove-Item -LiteralPath $localScript -Force -ErrorAction SilentlyContinue
   if ($scriptUploaded) {
     $cleanupCommand = "rm -f `"$remoteScriptPath`" `"$remoteArchive`""
-    ssh $target $cleanupCommand *> $null
+    ssh -o BatchMode=yes $target $cleanupCommand *> $null
   }
 }
