@@ -43,6 +43,7 @@ TMP="/tmp/yohka-backup-__TIMESTAMP__"
 ARCHIVE="__REMOTE_ARCHIVE__"
 
 cd "$REMOTE_PATH"
+find /tmp -maxdepth 1 \( -name 'yohka-backup-*.sh' -o -name 'yohka-full-*.tar.gz' \) -mmin +60 -delete 2>/dev/null || true
 rm -rf "$TMP"
 mkdir -p "$TMP/uploads"
 
@@ -85,8 +86,4 @@ try {
   Write-Host "Done: $localArchive"
 } finally {
   Remove-Item -LiteralPath $localScript -Force -ErrorAction SilentlyContinue
-  if ($scriptUploaded) {
-    $cleanupCommand = "rm -f `"$remoteScriptPath`" `"$remoteArchive`""
-    ssh -o BatchMode=yes $target $cleanupCommand *> $null
-  }
 }
