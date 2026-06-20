@@ -49,7 +49,8 @@ rm -rf "$TMP"
 $remoteScript = $remoteScriptTemplate.Replace("__REMOTE_PATH__", $RemotePath).Replace("__TIMESTAMP__", $timestamp).Replace("__REMOTE_ARCHIVE__", $remoteArchive)
 
 $localScript = Join-Path ([System.IO.Path]::GetTempPath()) "yohka-backup-$timestamp.sh"
-Set-Content -LiteralPath $localScript -Value $remoteScript -Encoding UTF8
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($localScript, $remoteScript, $utf8NoBom)
 
 try {
   Write-Host "Creating backup on server..."
