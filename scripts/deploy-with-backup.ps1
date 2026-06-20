@@ -8,6 +8,18 @@ param(
 $ErrorActionPreference = "Stop"
 $target = "$User@$Server"
 
+function Invoke-CheckedNative {
+  param(
+    [string]$Command,
+    [string[]]$Arguments
+  )
+
+  & $Command @Arguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Command failed with exit code $LASTEXITCODE"
+  }
+}
+
 & "$PSScriptRoot\backup-server.ps1" `
   -Server $Server `
   -User $User `
@@ -15,5 +27,5 @@ $target = "$User@$Server"
   -BackupDir $BackupDir
 
 Write-Host "Updating server..."
-ssh $target "cd '$RemotePath' && git pull && docker compose up -d --build"
+Invoke-CheckedNative "ssh" @($target, "cd '$RemotePath' && git pull && docker compose up -d --build")
 Write-Host "Server updated. Backup saved on this computer."

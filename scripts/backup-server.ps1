@@ -22,6 +22,19 @@ $localInfo = Join-Path $backupDirPath "yohka-latest.txt"
 $remoteScriptPath = "/tmp/yohka-backup-$timestamp.sh"
 $remoteArchive = "/tmp/yohka-full-$timestamp.tar.gz"
 $target = "$User@$Server"
+$scriptUploaded = $false
+
+function Invoke-CheckedNative {
+  param(
+    [string]$Command,
+    [string[]]$Arguments
+  )
+
+  & $Command @Arguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Command failed with exit code $LASTEXITCODE"
+  }
+}
 
 $remoteScriptTemplate = @'
 set -e
@@ -54,12 +67,13 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 try {
   Write-Host "Creating backup on server..."
-  scp $localScript "${target}:$remoteScriptPath"
-  ssh $target "bash '$remoteScriptPath'"
+  Invoke-CheckedNative "scp" @($localScript, "${target}:$remoteScriptPath")
+  $scriptUploaded = $true
+  Invoke-CheckedNative "ssh" @($target, "bash '$remoteScriptPath'")
 
   Write-Host "Downloading backup to this computer..."
   Remove-Item -LiteralPath $localArchive -Force -ErrorAction SilentlyContinue
-  scp "${target}:$remoteArchive" $localArchive
+  Invoke-CheckedNative "scp" @("${target}:$remoteArchive", $localArchive)
   $createdAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
   Set-Content -LiteralPath $localInfo -Value @(
     "created_at=$createdAt",
@@ -71,6 +85,8 @@ try {
   Write-Host "Done: $localArchive"
 } finally {
   Remove-Item -LiteralPath $localScript -Force -ErrorAction SilentlyContinue
-  $cleanupCommand = "rm -f `"$remoteScriptPath`" `"$remoteArchive`""
-  ssh $target $cleanupCommand *> $null
+  if ($scriptUploaded) {
+    $cleanupCommand = "rm -f `"$remoteScriptPath`" `"$remoteArchive`""
+    ssh $target $cleanupCommand *> $null
+  }
 }
