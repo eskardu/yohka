@@ -7,3 +7,4 @@ coverage
 *.tsbuildinfo
 apps/webapp/.vite
 packages/database/prisma/dev.db
+backups/
