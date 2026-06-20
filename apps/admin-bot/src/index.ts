@@ -133,6 +133,10 @@ bot.action("route:today", async (ctx) => {
   await sendTodayRoute(ctx);
 });
 
+bot.action(/^order:(.+):DONE$/, async (ctx) => {
+  await ctx.answerCbQuery("Заказ уже отмечен доставленным");
+});
+
 bot.action(/^eta:(.+):(5|10|15|20|25)$/, async (ctx) => {
   const [, orderId, minutesValue] = ctx.match;
   const minutes = Number(minutesValue);
@@ -188,9 +192,18 @@ bot.action(/^order:(.+):(ON_DELIVERY|DELIVERED|CANCELLED)$/, async (ctx) => {
 
   if (status === "DELIVERED") {
     try {
-      await ctx.deleteMessage();
+      await ctx.editMessageReplyMarkup({
+        inline_keyboard: [
+          [
+            {
+              text: "✅ Доставлено",
+              callback_data: `order:${orderId}:DONE`
+            }
+          ]
+        ]
+      });
     } catch (error) {
-      console.error("Failed to delete delivered order message", error);
+      console.error("Failed to mark delivered order message", error);
       await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
     }
     if (order.customerNotificationSent === false) {

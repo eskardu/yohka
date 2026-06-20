@@ -360,15 +360,9 @@ router.patch("/api/admin/products/:id/deactivate", asyncRoute(async (request, re
 }));
 
 router.get("/api/admin/routes/today", asyncRoute(async (_request, response) => {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-
   const orders = await prisma.order.findMany({
     where: {
-      status: { in: ["NEW", "ACCEPTED", "PREPARING", "ON_DELIVERY"] },
-      createdAt: { gte: start, lt: end }
+      status: { in: ["NEW", "ACCEPTED", "PREPARING", "ON_DELIVERY"] }
     },
     orderBy: { createdAt: "asc" }
   });
