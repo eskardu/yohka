@@ -26,6 +26,7 @@ type RoutePart = {
 };
 type TodayRoute = { url: string; sorted: RouteOrder[]; routes?: RoutePart[] };
 type DeliveryStatus = { text: string };
+type DeliveryStatusMessage = { messageId: number | null };
 type CollectOrdersResult = {
   orderCount: number;
   items: Array<{ name: string; quantity: number; unit: string }>;
@@ -37,6 +38,7 @@ type CollectOrdersResult = {
 };
 
 const etaMinutes = [5, 10, 15, 20, 25] as const;
+const deliveryStatusMessages = new Map<number, number>();
 
 const adminMenu = {
   reply_markup: {
@@ -361,6 +363,7 @@ async function notifyDeliverySoon(ctx: Context) {
   );
 
   if (deliveryStatus && ctx.chat) {
+    deliveryStatusMessages.set(ctx.chat.id, statusMessage.message_id);
     await registerDeliveryStatusMessage(ctx.chat.id, statusMessage.message_id).catch((error) => {
       console.error("Failed to register delivery status message", error);
     });
@@ -388,10 +391,15 @@ async function notifyNextRouteEta(ctx: Context, minutes: number) {
   };
 
   if (!result.found) {
-    if (result.routeFinished) return;
+    if (result.routeFinished) {
+      await refreshDeliveryStatusMessage(ctx);
+      return;
+    }
     await ctx.reply("Нет следующей точки маршрута. Сначала соберите заказы.", adminMenu);
     return;
   }
+
+  await refreshDeliveryStatusMessage(ctx);
 
   if (result.customerNotificationSent === false) {
     await ctx.reply(
@@ -422,6 +430,8 @@ async function markNextRouteDelivered(ctx: Context) {
     await ctx.reply("Нет следующей точки маршрута.", adminMenu);
     return;
   }
+
+  await refreshDeliveryStatusMessage(ctx);
 
   if (result.customerNotificationSent === false) {
     await ctx.reply(
@@ -493,6 +503,17 @@ async function fetchDeliveryStatusText() {
   return result.text;
 }
 
+async function fetchRegisteredDeliveryStatusMessage(chatId: number) {
+  const response = await fetch(`${apiBaseUrl}/api/admin/delivery/list-message/${chatId}`);
+
+  if (!response.ok) {
+    throw new Error(`Delivery status message request failed with status ${response.status}`);
+  }
+
+  const result = await response.json() as DeliveryStatusMessage;
+  return result.messageId;
+}
+
 async function registerDeliveryStatusMessage(chatId: number, messageId: number) {
   const response = await fetch(`${apiBaseUrl}/api/admin/delivery/list-message`, {
     method: "POST",
@@ -503,6 +524,41 @@ async function registerDeliveryStatusMessage(chatId: number, messageId: number) 
   if (!response.ok) {
     throw new Error(`Delivery status message register failed with status ${response.status}`);
   }
+}
+
+async function refreshDeliveryStatusMessage(ctx: Context) {
+  if (!ctx.chat) return;
+
+  const text = await fetchDeliveryStatusText().catch((error) => {
+    console.error("Failed to fetch delivery status for refresh", error);
+    return "";
+  });
+  if (!text) return;
+
+  const chatId = ctx.chat.id;
+  let messageId = deliveryStatusMessages.get(chatId);
+  if (!messageId) {
+    messageId = await fetchRegisteredDeliveryStatusMessage(chatId).catch((error) => {
+      console.error("Failed to fetch registered delivery status message", error);
+      return null;
+    }) ?? undefined;
+  }
+
+  if (messageId) {
+    try {
+      await ctx.telegram.editMessageText(chatId, messageId, undefined, text);
+      deliveryStatusMessages.set(chatId, messageId);
+      return;
+    } catch (error) {
+      console.error("Failed to force edit delivery status message", error);
+    }
+  }
+
+  const message = await ctx.reply(text, adminMenu);
+  deliveryStatusMessages.set(chatId, message.message_id);
+  await registerDeliveryStatusMessage(chatId, message.message_id).catch((error) => {
+    console.error("Failed to register refreshed delivery status message", error);
+  });
 }
 
 async function findNextRouteOrder(orderId: string) {

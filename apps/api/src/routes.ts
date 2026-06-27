@@ -10,6 +10,7 @@ import { AppError } from "./errors.js";
 import { buildGoogleMapsDirectionsUrlFromSorted, sortByNearestNeighbor } from "./maps.js";
 import {
   createOrder,
+  getAdminDeliveryListMessage,
   getDeliveryStatusText,
   markDeliveredOrdersBeforeRoutePositionPickedUp,
   markOrderInTransitForAdmin,
@@ -218,6 +219,12 @@ router.post("/api/admin/delivery/list-message", asyncRoute(async (request, respo
   response.status(204).send();
 }));
 
+router.get("/api/admin/delivery/list-message/:chatId", asyncRoute(async (request, response) => {
+  const chatId = z.coerce.bigint().parse(request.params.chatId);
+  const message = await getAdminDeliveryListMessage(chatId);
+  response.json({ messageId: message?.messageId ?? null });
+}));
+
 router.post("/api/admin/orders/collect", asyncRoute(async (_request, response) => {
   const orders = await prisma.order.findMany({
     where: { status: "NEW" },
@@ -303,7 +310,8 @@ router.post("/api/admin/route/next/eta", asyncRoute(async (request, response) =>
   const order = await findNextRouteOrder();
 
   if (!order) {
-    response.json({ found: false });
+    await markDeliveredOrdersBeforeRoutePositionPickedUp(Number.MAX_SAFE_INTEGER);
+    response.json({ found: false, routeFinished: true });
     return;
   }
 

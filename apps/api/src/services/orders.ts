@@ -221,8 +221,10 @@ export async function markDeliveredOrdersBeforeRoutePositionPickedUp(routePositi
 export async function notifyDeliverySoonForActiveOrders() {
   const orders = await prisma.order.findMany({
     where: {
-      status: { in: ["PREPARING", "ON_DELIVERY"] }
+      status: { in: ["PREPARING", "ON_DELIVERY"] },
+      routePosition: { not: null }
     },
+    orderBy: [{ routePosition: "asc" }, { createdAt: "asc" }],
     include: { user: true, items: { include: { product: true } } }
   });
 
@@ -314,6 +316,13 @@ export async function registerAdminDeliveryListMessage(chatId: number | string |
     where: { chatId: BigInt(chatId) },
     update: { messageId },
     create: { chatId: BigInt(chatId), messageId }
+  });
+}
+
+export async function getAdminDeliveryListMessage(chatId: number | string | bigint) {
+  return prisma.adminDeliveryListMessage.findUnique({
+    where: { chatId: BigInt(chatId) },
+    select: { messageId: true }
   });
 }
 
