@@ -6,6 +6,7 @@ import { createProduct, deactivateProduct, getCategories, getProducts, getSettin
 import type { CartLine, Category, Product } from "./types.js";
 
 type View = "catalog" | "cart" | "success" | "admin" | "admin-login";
+const MIN_ORDER_SUBTOTAL = 100;
 
 const adminTelegramIds = (import.meta.env.VITE_ADMIN_TELEGRAM_IDS ?? "")
   .split(",")
@@ -291,6 +292,7 @@ function CartView({
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const isBelowMinimum = cart.length > 0 && subtotal < MIN_ORDER_SUBTOTAL;
 
   function requestLocation() {
     setError("");
@@ -320,6 +322,11 @@ function CartView({
 
     if (!location) {
       setError("Сначала отправьте местоположение.");
+      return;
+    }
+
+    if (isBelowMinimum) {
+      setError(`Сумма заказа должна быть минимум ${MIN_ORDER_SUBTOTAL} SAR.`);
       return;
     }
 
@@ -360,7 +367,7 @@ function CartView({
 
   return (
     <main className="panel">
-      <button className="icon-row" onClick={onBack}><ChevronLeft size={18} /> Каталог</button>
+      <button className="catalog-back" onClick={onBack}><ChevronLeft size={18} /> К каталогу</button>
       <div className="panel-heading">
         <h1>Корзина</h1>
         <button className="ghost" onClick={onClear}><Trash2 size={16} /> Очистить</button>
@@ -384,7 +391,7 @@ function CartView({
           </div>
         );
       })}
-      <Totals subtotal={subtotal} deliveryFee={deliveryFee} finalTotal={finalTotal} />
+      <Totals finalTotal={finalTotal} />
       <label>Контакт<input value={contact} onChange={(event) => setContact(event.target.value)} placeholder="+966..." /></label>
       <label>Комментарий<textarea value={comment} onChange={(event) => setComment(event.target.value)} /></label>
       <p className="location-hint">Для подтверждения нажмите отправить местоположение</p>
@@ -392,8 +399,11 @@ function CartView({
         {location ? <Check size={18} /> : <LocateFixed size={18} />}
         {location ? "Местоположение получено" : "Отправить местоположение"}
       </button>
+      {isBelowMinimum && (
+        <p className="minimum-order-error">Сумма заказа должна быть минимум {MIN_ORDER_SUBTOTAL} SAR.</p>
+      )}
       {error && <p className="form-error">{error}</p>}
-      <button className="primary" disabled={!cart.length || submitting || !location} onClick={submitOrder}>
+      <button className="primary" disabled={!cart.length || submitting || !location || isBelowMinimum} onClick={submitOrder}>
         {submitting ? "Отправляем..." : "Подтвердить заказ"}
       </button>
     </main>
@@ -801,11 +811,9 @@ function AdminLoginView({ onBack, onSuccess }: { onBack: () => void; onSuccess: 
   );
 }
 
-function Totals({ subtotal, deliveryFee, finalTotal }: { subtotal: number; deliveryFee: number; finalTotal: number }) {
+function Totals({ finalTotal }: { finalTotal: number }) {
   return (
     <div className="totals">
-      <div><span>Товары</span><strong>{formatMoney(subtotal)}</strong></div>
-      <div><span>Доставка</span><strong>{deliveryFee === 0 ? "бесплатно" : formatMoney(deliveryFee)}</strong></div>
       <div><span>Итого</span><strong>{formatMoney(finalTotal)}</strong></div>
     </div>
   );
