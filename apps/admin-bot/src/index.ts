@@ -393,10 +393,12 @@ async function notifyNextRouteEta(ctx: Context, minutes: number) {
     return;
   }
 
-  const message = result.customerNotificationSent === false
-    ? `Заказ #${result.orderNumber}: уведомление на ${minutes} мин не ушло. ${result.customerNotificationError ?? ""}`
-    : `Отправлено следующей точке: заказ #${result.orderNumber}, примерно ${minutes} мин.`;
-  await ctx.reply(message, adminMenu);
+  if (result.customerNotificationSent === false) {
+    await ctx.reply(
+      `Заказ #${result.orderNumber}: уведомление на ${minutes} мин не ушло. ${result.customerNotificationError ?? ""}`,
+      adminMenu
+    );
+  }
 }
 
 async function markNextRouteDelivered(ctx: Context) {
@@ -421,10 +423,12 @@ async function markNextRouteDelivered(ctx: Context) {
     return;
   }
 
-  const message = result.customerNotificationSent === false
-    ? `Заказ #${result.orderNumber}: отмечен доставленным, но уведомление клиенту не ушло. ${result.customerNotificationError ?? ""}`
-    : `Заказ #${result.orderNumber} отмечен доставленным. В сообщении заказа появилась ✅.`;
-  await ctx.reply(message, adminMenu);
+  if (result.customerNotificationSent === false) {
+    await ctx.reply(
+      `Заказ #${result.orderNumber}: отмечен доставленным, но уведомление клиенту не ушло. ${result.customerNotificationError ?? ""}`,
+      adminMenu
+    );
+  }
 }
 
 async function sendTodayRoute(ctx: Context) {

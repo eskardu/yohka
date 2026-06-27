@@ -184,12 +184,10 @@ export async function updateOrderStatus(id: string, status: OrderStatus) {
   }
 
   if (status === "ON_DELIVERY" || status === "DELIVERED") {
-    updateAdminOrderMessages(order.id, status).catch((error) => {
-      console.error("Failed to update admin order message", order.queueNumber, error);
-    });
-    updateDeliveryListMessages().catch((error) => {
-      console.error("Failed to update admin delivery list", order.queueNumber, error);
-    });
+    await Promise.allSettled([
+      updateAdminOrderMessages(order.id, status),
+      updateDeliveryListMessages()
+    ]);
   }
 
   return { ...order, customerNotificationSent, customerNotificationError };
@@ -287,14 +285,13 @@ export async function notifyCustomerEta(id: string, minutes: number) {
   }
 
   try {
-    await telegram.sendMessage(
-      Number(order.user.telegramId),
-      [
-        "🚚 Курьер уже выехал к вам.",
-        `Примерно через ${minutes} минут будет у вас.`,
-        `К оплате: ${formatMoney(order.totalAmount.toString())}`
-      ].join("\n")
-    );
+      await telegram.sendMessage(
+        Number(order.user.telegramId),
+        [
+          "🚚 Курьер уже выехал к вам.",
+          `Примерно через ${minutes} минут будет у вас инша Аллах.`
+        ].join("\n")
+      );
 
     return {
       orderNumber: order.queueNumber,
@@ -334,12 +331,12 @@ export async function getDeliveryStatusText() {
     orders.map((order) => ({
       orderNumber: order.queueNumber,
       status: order.status,
-        username: order.user.username,
-        contact: order.customerPhone,
-        pickedUpAt: order.pickedUpAt,
-        totalAmount: order.totalAmount.toString()
-      }))
-    );
+      username: order.user.username,
+      contact: order.customerPhone,
+      pickedUpAt: order.pickedUpAt,
+      totalAmount: order.totalAmount.toString()
+    }))
+  );
 }
 
 export async function notifyAdmins(order: Awaited<ReturnType<typeof prisma.order.create>>) {
@@ -462,17 +459,17 @@ function formatDeliveryStatusText(
   const total = orders.reduce((sum, order) => sum + Number(order.totalAmount), 0);
 
   return [
-      "Статус доставки:",
-      ...orders.map((order) => {
-        if (order.status === "DELIVERED") {
-          if (order.pickedUpAt) {
-            return `заказ #${order.orderNumber} доставлено ✅ ${formatMoney(order.totalAmount)}`;
-          }
-
-          const username = order.username ? ` @${order.username}` : "";
-          const contact = order.contact && order.contact !== "не указан" ? ` (${order.contact})` : "";
-          return `заказ #${order.orderNumber} доставлено ✅${username}${contact} - к оплате ${formatMoney(order.totalAmount)}`;
+    "Статус доставки:",
+    ...orders.map((order) => {
+      if (order.status === "DELIVERED") {
+        if (order.pickedUpAt) {
+          return `заказ #${order.orderNumber} доставлено ✅ ${formatMoney(order.totalAmount)}`;
         }
+
+        const username = order.username ? ` @${order.username}` : "";
+        const contact = order.contact && order.contact !== "не указан" ? ` (${order.contact})` : "";
+        return `заказ #${order.orderNumber} доставлено ✅${username}${contact} - к оплате ${formatMoney(order.totalAmount)}`;
+      }
 
       const username = order.username ? ` @${order.username}` : "";
       const contact = order.contact && order.contact !== "не указан" ? ` (${order.contact})` : "";
