@@ -17,14 +17,26 @@ const bot = new Telegraf(token);
 
 type StatPeriod = "today" | "week" | "month" | "year";
 type RouteOrder = { id: string; orderNumber: number; latitude: number; longitude: number };
-type TodayRoute = { url: string; sorted: RouteOrder[] };
+type RoutePart = {
+  url: string;
+  index: number;
+  orders: RouteOrder[];
+  startOrderNumber: number | null;
+  endOrderNumber: number | null;
+};
+type TodayRoute = { url: string; sorted: RouteOrder[]; routes?: RoutePart[] };
+type CollectOrdersResult = {
+  orderCount: number;
+  items: Array<{ name: string; quantity: number; unit: string }>;
+  orders: Array<{ id: string; orderNumber: number; username?: string | null; totalAmount: string }>;
+};
 
 const etaMinutes = [5, 10, 15, 20, 25] as const;
 
 const adminMenu = {
   reply_markup: {
     keyboard: [
-      ["Скоро доставка"],
+      ["Собрать заказы", "Скоро доставка"],
       ["Общий маршрут", "Статистика"],
       ["Сброс статистики"]
     ],
@@ -70,6 +82,10 @@ bot.use(async (ctx, next) => {
 
 bot.start((ctx) => showAdminMenu(ctx));
 bot.command("admin", (ctx) => showAdminMenu(ctx));
+
+bot.hears("Собрать заказы", async (ctx) => {
+  await collectOrders(ctx);
+});
 
 bot.hears("Скоро доставка", async (ctx) => {
   await notifyDeliverySoon(ctx);
@@ -251,6 +267,50 @@ async function showStatsMenu(ctx: Context) {
   await ctx.reply("Выберите период статистики:", statsKeyboard);
 }
 
+async function collectOrders(ctx: Context) {
+  const response = await fetch(`${apiBaseUrl}/api/admin/orders/collect`, {
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    await ctx.reply("Не удалось собрать заказы.", adminMenu);
+    return;
+  }
+
+  const result = await response.json() as CollectOrdersResult;
+
+  if (result.orderCount === 0) {
+    await ctx.reply("Новых заказов для сборки нет.", adminMenu);
+    return;
+  }
+
+  const items = result.items
+    .map((item, index) => `${index + 1}. ${item.name}: ${formatQuantity(item.quantity)} ${formatUnit(item.unit)}`)
+    .join("\n");
+
+  const orders = result.orders
+    .map((order) => {
+      const username = order.username ? `@${order.username}` : "без username";
+      return `#${order.orderNumber} ${username} - ${formatMoney(order.totalAmount)}`;
+    })
+    .join("\n");
+
+  await ctx.reply(
+    [
+      `Собрано заказов: ${result.orderCount}`,
+      "",
+      "Список товаров:",
+      items,
+      "",
+      "Заказы в партии:",
+      orders,
+      "",
+      "Новые заказы после этого снова начнутся с #1."
+    ].join("\n"),
+    adminMenu
+  );
+}
+
 async function notifyDeliverySoon(ctx: Context) {
   const response = await fetch(`${apiBaseUrl}/api/orders/notify-delivery-soon`, {
     method: "POST"
@@ -268,14 +328,14 @@ async function notifyDeliverySoon(ctx: Context) {
   };
 
   if (result.totalOrders === 0) {
-    await ctx.reply("Активных заказов для уведомления нет.", adminMenu);
+    await ctx.reply("Собранных заказов для уведомления нет. Сначала нажмите \"Собрать заказы\".", adminMenu);
     return;
   }
 
   await ctx.reply(
     [
       "Уведомление о скорой доставке отправлено.",
-      `Активных заказов: ${result.totalOrders}`,
+      `Заказов в текущей партии: ${result.totalOrders}`,
       `Клиентов уведомлено: ${result.notifiedUsers}`,
       `Ошибок отправки: ${result.failedUsers}`
     ].join("\n"),
@@ -287,19 +347,40 @@ async function sendTodayRoute(ctx: Context) {
   const route = await fetchTodayRoute();
 
   if (!route.sorted.length) {
-    await ctx.reply("На сегодня нет активных заказов с геолокацией.", adminMenu);
+    await ctx.reply("Нет собранных заказов для маршрута. Сначала нажмите \"Собрать заказы\".", adminMenu);
     return;
   }
 
   const orderList = route.sorted
-    .map((order, index) => `${index + 1}. Заказ #${order.orderNumber}`)
+    .map((order, index) => `Точка ${index + 1}: заказ #${order.orderNumber}`)
     .join("\n");
+  const routes = route.routes?.length
+    ? route.routes
+    : [{ url: route.url, index: 1, orders: route.sorted, startOrderNumber: null, endOrderNumber: route.sorted.at(-1)?.orderNumber ?? null }];
+
+  const buttons = routes.map((part) => {
+    const label = routes.length === 1
+      ? "Открыть общий маршрут"
+      : `Маршрут ${part.index} до #${part.endOrderNumber ?? ""}`.trim();
+    return [Markup.button.url(label, part.url)];
+  });
+
+  const routeNote = routes.length > 1
+    ? `\n\nМаршрут разделен на ${routes.length} части. Каждая следующая часть начинается с последней точки предыдущей.`
+    : "";
+  const routeParts = routes.length > 1
+    ? "\n\n" + routes
+      .map((part) => {
+        const orders = part.orders.map((order) => `#${order.orderNumber}`).join(", ");
+        const start = part.startOrderNumber ? ` от #${part.startOrderNumber}` : " от магазина";
+        return `Маршрут ${part.index}${start}: ${orders}`;
+      })
+      .join("\n")
+    : "";
 
   await ctx.reply(
-    `Порядок доставки:\n${orderList}`,
-    Markup.inlineKeyboard([
-      Markup.button.url("Открыть общий маршрут", route.url)
-    ])
+    `Порядок доставки:\n${orderList}${routeNote}${routeParts}`,
+    Markup.inlineKeyboard(buttons)
   );
 }
 
@@ -405,6 +486,14 @@ async function sendStats(ctx: Context, period: StatPeriod) {
     ].join("\n"),
     adminMenu
   );
+}
+
+function formatQuantity(quantity: number) {
+  return Number.isInteger(quantity) ? String(quantity) : quantity.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function formatUnit(unit: string) {
+  return unit === "kg" ? "кг" : "шт";
 }
 
 bot.catch((error) => {

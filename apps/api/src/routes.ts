@@ -193,6 +193,49 @@ router.post("/api/orders/notify-delivery-soon", asyncRoute(async (_request, resp
   response.json(result);
 }));
 
+router.post("/api/admin/orders/collect", asyncRoute(async (_request, response) => {
+  const orders = await prisma.order.findMany({
+    where: { status: "NEW" },
+    include: {
+      user: true,
+      items: { include: { product: true } }
+    },
+    orderBy: { createdAt: "asc" }
+  });
+
+  if (!orders.length) {
+    response.json({ orderCount: 0, items: [], orders: [] });
+    return;
+  }
+
+  await prisma.order.updateMany({
+    where: { id: { in: orders.map((order) => order.id) } },
+    data: { status: "PREPARING" }
+  });
+
+  const itemsByProduct = new Map<string, { name: string; quantity: number; unit: string }>();
+  for (const item of orders.flatMap((order) => order.items)) {
+    const current = itemsByProduct.get(item.productId) ?? {
+      name: item.productNameSnapshot,
+      quantity: 0,
+      unit: item.product.unit
+    };
+    current.quantity += Number(item.quantity);
+    itemsByProduct.set(item.productId, current);
+  }
+
+  response.json({
+    orderCount: orders.length,
+    items: [...itemsByProduct.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    orders: orders.map((order) => ({
+      id: order.id,
+      orderNumber: order.queueNumber,
+      username: order.user.username,
+      totalAmount: order.totalAmount
+    }))
+  });
+}));
+
 router.post("/api/orders/:id/notify-eta", asyncRoute(async (request, response) => {
   const orderId = z.string().parse(request.params.id);
   const body = etaNotificationSchema.parse(request.body);
@@ -362,7 +405,7 @@ router.patch("/api/admin/products/:id/deactivate", asyncRoute(async (request, re
 router.get("/api/admin/routes/today", asyncRoute(async (_request, response) => {
   const orders = await prisma.order.findMany({
     where: {
-      status: { in: ["NEW", "ACCEPTED", "PREPARING", "ON_DELIVERY"] }
+      status: { in: ["PREPARING", "ON_DELIVERY"] }
     },
     orderBy: { createdAt: "asc" }
   });

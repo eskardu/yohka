@@ -42,11 +42,20 @@ export function buildGoogleMapsDirectionsUrl(
   points: Point[]
 ) {
   const sorted = sortByNearestNeighbor(start, points);
+  const routes = buildGoogleMapsDirectionChunks(start, sorted);
+  const firstRoute = routes[0];
+  return { url: firstRoute?.url ?? buildSingleRouteUrl(start, []), sorted, routes };
+}
+
+function buildSingleRouteUrl(
+  start: Pick<Point, "latitude" | "longitude">,
+  points: Point[]
+) {
   const origin = `${start.latitude},${start.longitude}`;
-  const destination = sorted.at(-1)
-    ? `${sorted.at(-1)!.latitude},${sorted.at(-1)!.longitude}`
+  const destination = points.at(-1)
+    ? `${points.at(-1)!.latitude},${points.at(-1)!.longitude}`
     : origin;
-  const waypoints = sorted
+  const waypoints = points
     .slice(0, -1)
     .map((point) => `${point.latitude},${point.longitude}`)
     .join("|");
@@ -55,7 +64,43 @@ export function buildGoogleMapsDirectionsUrl(
   url.searchParams.set("origin", origin);
   url.searchParams.set("destination", destination);
   if (waypoints) url.searchParams.set("waypoints", waypoints);
-  return { url: url.toString(), sorted };
+  return url.toString();
+}
+
+export function buildGoogleMapsDirectionChunks(
+  start: Pick<Point, "latitude" | "longitude">,
+  sorted: Point[],
+  maxOrdersPerRoute = 9
+) {
+  const routes: Array<{
+    url: string;
+    index: number;
+    orders: Point[];
+    startOrderNumber: number | null;
+    endOrderNumber: number | null;
+  }> = [];
+  let routeStart = start;
+  let previousOrder: Point | null = null;
+
+  for (let index = 0; index < sorted.length; index += maxOrdersPerRoute) {
+    const orders = sorted.slice(index, index + maxOrdersPerRoute);
+    if (!orders.length) continue;
+
+    routes.push({
+      url: buildSingleRouteUrl(routeStart, orders),
+      index: routes.length + 1,
+      orders,
+      startOrderNumber: previousOrder?.orderNumber ?? null,
+      endOrderNumber: orders.at(-1)?.orderNumber ?? null
+    });
+
+    previousOrder = orders.at(-1) ?? previousOrder;
+    routeStart = previousOrder
+      ? { latitude: previousOrder.latitude, longitude: previousOrder.longitude }
+      : routeStart;
+  }
+
+  return routes;
 }
 
 export function buildPointMapsUrl(latitude: number, longitude: number) {

@@ -113,7 +113,7 @@ export async function createOrder(input: CheckoutInput) {
     }
 
     const lastQueueNumber = await tx.order.aggregate({
-      where: { status: { in: ["NEW", "ACCEPTED", "PREPARING"] } },
+      where: { status: "NEW" },
       _max: { queueNumber: true }
     });
 
@@ -189,7 +189,7 @@ export async function updateOrderStatus(id: string, status: OrderStatus) {
 export async function notifyDeliverySoonForActiveOrders() {
   const orders = await prisma.order.findMany({
     where: {
-      status: { in: ["NEW", "ACCEPTED", "PREPARING", "ON_DELIVERY"] }
+      status: { in: ["PREPARING", "ON_DELIVERY"] }
     },
     include: { user: true }
   });
