@@ -317,9 +317,7 @@ async function collectOrders(ctx: Context) {
       orders,
       "",
       "Общий список товаров:",
-      items,
-      "",
-      "Новые заказы после этого снова начнутся с #1."
+      items
     ].join("\n"),
     adminMenu
   );
@@ -383,12 +381,14 @@ async function notifyNextRouteEta(ctx: Context, minutes: number) {
 
   const result = await response.json() as {
     found: boolean;
+    routeFinished?: boolean;
     orderNumber?: number;
     customerNotificationSent?: boolean;
     customerNotificationError?: string | null;
   };
 
   if (!result.found) {
+    if (result.routeFinished) return;
     await ctx.reply("Нет следующей точки маршрута. Сначала соберите заказы.", adminMenu);
     return;
   }
