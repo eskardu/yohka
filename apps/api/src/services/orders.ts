@@ -183,7 +183,24 @@ export async function updateOrderStatus(id: string, status: OrderStatus) {
     }
   }
 
+  if (status === "ON_DELIVERY" || status === "DELIVERED") {
+    updateAdminOrderMessages(order.id, status).catch((error) => {
+      console.error("Failed to update admin order message", order.queueNumber, error);
+    });
+  }
+
   return { ...order, customerNotificationSent, customerNotificationError };
+}
+
+export async function markOrderInTransitForAdmin(id: string) {
+  const order = await prisma.order.update({
+    where: { id },
+    data: { status: "ON_DELIVERY" },
+    include: { user: true, items: { include: { product: true } } }
+  });
+
+  await updateAdminOrderMessages(order.id, "ON_DELIVERY");
+  return order;
 }
 
 export async function notifyDeliverySoonForActiveOrders() {
@@ -191,7 +208,7 @@ export async function notifyDeliverySoonForActiveOrders() {
     where: {
       status: { in: ["PREPARING", "ON_DELIVERY"] }
     },
-    include: { user: true }
+    include: { user: true, items: { include: { product: true } } }
   });
 
   if (!orders.length) {
@@ -202,6 +219,10 @@ export async function notifyDeliverySoonForActiveOrders() {
     where: { id: { in: orders.map((order) => order.id) } },
     data: { status: "ON_DELIVERY" }
   });
+
+  await Promise.allSettled(
+    orders.map((order) => updateAdminOrderMessages(order.id, "ON_DELIVERY"))
+  );
 
   const telegram = getClientTelegram();
   if (!telegram) {
@@ -297,15 +318,63 @@ export async function notifyAdmins(order: Awaited<ReturnType<typeof prisma.order
 
   const results = await Promise.allSettled(
     config.adminTelegramIds.map((chatId) =>
-      telegram.sendMessage(chatId, text, { parse_mode: "HTML", reply_markup: keyboard })
+      telegram.sendMessage(chatId, text, { parse_mode: "HTML" })
     )
   );
 
-  for (const result of results) {
+  const messages: Array<{ orderId: string; chatId: bigint; messageId: number }> = [];
+  for (const [index, result] of results.entries()) {
     if (result.status === "rejected") {
       console.error("Failed to send admin order notification", order.queueNumber, result.reason);
+      continue;
     }
+
+    messages.push({
+      orderId: order.id,
+      chatId: BigInt(config.adminTelegramIds[index]!),
+      messageId: result.value.message_id
+    });
   }
+
+  if (messages.length) {
+    await prisma.adminOrderMessage.createMany({
+      data: messages,
+      skipDuplicates: true
+    });
+  }
+}
+
+async function updateAdminOrderMessages(orderId: string, status: "ON_DELIVERY" | "DELIVERED") {
+  const telegram = getAdminTelegram();
+  if (!telegram) return;
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      user: true,
+      items: { include: { product: true } },
+      adminMessages: true
+    }
+  });
+
+  if (!order || !order.adminMessages.length) return;
+
+  const statusLine = status === "ON_DELIVERY"
+    ? "\n\n<b>🚚 В пути</b>"
+    : "\n\n<b>✅ Доставлено</b>";
+  const text = `${formatOrderMessage(order)}${statusLine}`;
+
+  await Promise.allSettled(
+    order.adminMessages.map((message) =>
+      telegram.editMessageText(
+        Number(message.chatId),
+        message.messageId,
+        undefined,
+        text,
+        { parse_mode: "HTML" }
+      )
+    )
+  );
 }
 
 async function notifyCustomerAboutCreatedOrder(order: Parameters<typeof formatCustomerOrderConfirmation>[0]) {

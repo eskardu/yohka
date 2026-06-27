@@ -42,6 +42,13 @@ export function buildGoogleMapsDirectionsUrl(
   points: Point[]
 ) {
   const sorted = sortByNearestNeighbor(start, points);
+  return buildGoogleMapsDirectionsUrlFromSorted(start, sorted);
+}
+
+export function buildGoogleMapsDirectionsUrlFromSorted(
+  start: Pick<Point, "latitude" | "longitude">,
+  sorted: Point[]
+) {
   const routes = buildGoogleMapsDirectionChunks(start, sorted);
   const firstRoute = routes[0];
   return { url: firstRoute?.url ?? buildSingleRouteUrl(start, []), sorted, routes };

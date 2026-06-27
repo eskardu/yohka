@@ -7,8 +7,8 @@ import path from "node:path";
 import { z } from "zod";
 import { config } from "./config.js";
 import { AppError } from "./errors.js";
-import { buildGoogleMapsDirectionsUrl } from "./maps.js";
-import { createOrder, notifyCustomerEta, notifyDeliverySoonForActiveOrders, updateOrderStatus } from "./services/orders.js";
+import { buildGoogleMapsDirectionsUrlFromSorted, sortByNearestNeighbor } from "./maps.js";
+import { createOrder, markOrderInTransitForAdmin, notifyCustomerEta, notifyDeliverySoonForActiveOrders, updateOrderStatus } from "./services/orders.js";
 
 export const router = Router();
 
@@ -208,10 +208,29 @@ router.post("/api/admin/orders/collect", asyncRoute(async (_request, response) =
     return;
   }
 
-  await prisma.order.updateMany({
-    where: { id: { in: orders.map((order) => order.id) } },
-    data: { status: "PREPARING" }
-  });
+  const points = orders.map((order) => ({
+    id: order.id,
+    orderNumber: order.queueNumber,
+    latitude: Number(order.latitude),
+    longitude: Number(order.longitude)
+  }));
+  const sorted = sortByNearestNeighbor(
+    { latitude: config.storeLatitude, longitude: config.storeLongitude },
+    points
+  );
+  const routePositions = new Map(sorted.map((order, index) => [order.id, index + 1]));
+
+  await prisma.$transaction(
+    orders.map((order) =>
+      prisma.order.update({
+        where: { id: order.id },
+        data: {
+          status: "PREPARING",
+          routePosition: routePositions.get(order.id) ?? null
+        }
+      })
+    )
+  );
 
   const itemsByProduct = new Map<string, { name: string; quantity: number; unit: string }>();
   for (const item of orders.flatMap((order) => order.items)) {
@@ -227,7 +246,7 @@ router.post("/api/admin/orders/collect", asyncRoute(async (_request, response) =
   response.json({
     orderCount: orders.length,
     items: [...itemsByProduct.values()].sort((a, b) => a.name.localeCompare(b.name)),
-    orders: orders.map((order) => ({
+    orders: [...orders].sort((a, b) => (routePositions.get(a.id) ?? 0) - (routePositions.get(b.id) ?? 0)).map((order) => ({
       id: order.id,
       orderNumber: order.queueNumber,
       username: order.user.username,
@@ -241,6 +260,45 @@ router.post("/api/orders/:id/notify-eta", asyncRoute(async (request, response) =
   const body = etaNotificationSchema.parse(request.body);
   const result = await notifyCustomerEta(orderId, body.minutes);
   response.json(result);
+}));
+
+router.post("/api/admin/route/next/eta", asyncRoute(async (request, response) => {
+  const body = etaNotificationSchema.parse(request.body);
+  const order = await findNextRouteOrder();
+
+  if (!order) {
+    response.json({ found: false });
+    return;
+  }
+
+  const result = await notifyCustomerEta(order.id, body.minutes);
+  await markOrderInTransitForAdmin(order.id);
+  response.json({
+    found: true,
+    routePoint: 1,
+    orderId: order.id,
+    ...result,
+    orderNumber: order.orderNumber
+  });
+}));
+
+router.post("/api/admin/route/next/delivered", asyncRoute(async (_request, response) => {
+  const order = await findNextRouteOrder();
+
+  if (!order) {
+    response.json({ found: false });
+    return;
+  }
+
+  const result = await updateOrderStatus(order.id, "DELIVERED");
+  response.json({
+    found: true,
+    routePoint: 1,
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+    customerNotificationSent: result.customerNotificationSent,
+    customerNotificationError: result.customerNotificationError
+  });
 }));
 
 router.patch("/api/orders/:id/status", asyncRoute(async (request, response) => {
@@ -405,9 +463,10 @@ router.patch("/api/admin/products/:id/deactivate", asyncRoute(async (request, re
 router.get("/api/admin/routes/today", asyncRoute(async (_request, response) => {
   const orders = await prisma.order.findMany({
     where: {
-      status: { in: ["PREPARING", "ON_DELIVERY"] }
+      status: { in: ["PREPARING", "ON_DELIVERY"] },
+      routePosition: { not: null }
     },
-    orderBy: { createdAt: "asc" }
+    orderBy: [{ routePosition: "asc" }, { createdAt: "asc" }]
   });
 
   const points = orders.map((order) => ({
@@ -416,12 +475,31 @@ router.get("/api/admin/routes/today", asyncRoute(async (_request, response) => {
     latitude: Number(order.latitude),
     longitude: Number(order.longitude)
   }));
-  const route = buildGoogleMapsDirectionsUrl(
+  const route = buildGoogleMapsDirectionsUrlFromSorted(
     { latitude: config.storeLatitude, longitude: config.storeLongitude },
     points
   );
   response.json(route);
 }));
+
+async function findNextRouteOrder() {
+  const order = await prisma.order.findFirst({
+    where: {
+      status: { in: ["PREPARING", "ON_DELIVERY"] },
+      routePosition: { not: null }
+    },
+    orderBy: [{ routePosition: "asc" }, { createdAt: "asc" }]
+  });
+
+  return order
+    ? {
+      id: order.id,
+      orderNumber: order.queueNumber,
+      latitude: Number(order.latitude),
+      longitude: Number(order.longitude)
+    }
+    : null;
+}
 
 function getPeriodRange(period: "today" | "yesterday" | "week" | "month" | "year") {
   const now = new Date();

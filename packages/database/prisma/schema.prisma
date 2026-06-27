@@ -91,14 +91,29 @@ model Order {
   addressText     String?
   customerComment String?
   deliveryDay     DateTime?
+  routePosition   Int?
   deliveredAt     DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   user            User          @relation(fields: [userId], references: [id])
   items           OrderItem[]
+  adminMessages   AdminOrderMessage[]
 
   @@index([status, createdAt])
+  @@index([status, routePosition])
   @@index([userId])
+}
+
+model AdminOrderMessage {
+  id        String   @id @default(cuid())
+  orderId   String
+  chatId    BigInt
+  messageId Int
+  createdAt DateTime @default(now())
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, chatId])
+  @@index([orderId])
 }
 
 model OrderItem {

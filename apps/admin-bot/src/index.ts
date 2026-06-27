@@ -38,6 +38,8 @@ const adminMenu = {
     keyboard: [
       ["Собрать заказы", "Скоро доставка"],
       ["Общий маршрут", "Статистика"],
+      ["5 мин", "10 мин", "15 мин"],
+      ["20 мин", "25 мин", "Доставлено"],
       ["Сброс статистики"]
     ],
     resize_keyboard: true,
@@ -89,6 +91,14 @@ bot.hears("Собрать заказы", async (ctx) => {
 
 bot.hears("Скоро доставка", async (ctx) => {
   await notifyDeliverySoon(ctx);
+});
+
+bot.hears(/^(5|10|15|20|25) мин$/, async (ctx) => {
+  await notifyNextRouteEta(ctx, Number(ctx.match[1]));
+});
+
+bot.hears("Доставлено", async (ctx) => {
+  await markNextRouteDelivered(ctx);
 });
 
 bot.hears("Общий маршрут", async (ctx) => {
@@ -343,6 +353,64 @@ async function notifyDeliverySoon(ctx: Context) {
   );
 }
 
+async function notifyNextRouteEta(ctx: Context, minutes: number) {
+  const response = await fetch(`${apiBaseUrl}/api/admin/route/next/eta`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ minutes })
+  });
+
+  if (!response.ok) {
+    await ctx.reply("Не удалось отправить уведомление следующей точке.", adminMenu);
+    return;
+  }
+
+  const result = await response.json() as {
+    found: boolean;
+    orderNumber?: number;
+    customerNotificationSent?: boolean;
+    customerNotificationError?: string | null;
+  };
+
+  if (!result.found) {
+    await ctx.reply("Нет следующей точки маршрута. Сначала соберите заказы.", adminMenu);
+    return;
+  }
+
+  const message = result.customerNotificationSent === false
+    ? `Заказ #${result.orderNumber}: уведомление на ${minutes} мин не ушло. ${result.customerNotificationError ?? ""}`
+    : `Отправлено следующей точке: заказ #${result.orderNumber}, примерно ${minutes} мин.`;
+  await ctx.reply(message, adminMenu);
+}
+
+async function markNextRouteDelivered(ctx: Context) {
+  const response = await fetch(`${apiBaseUrl}/api/admin/route/next/delivered`, {
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    await ctx.reply("Не удалось отметить следующую точку доставленной.", adminMenu);
+    return;
+  }
+
+  const result = await response.json() as {
+    found: boolean;
+    orderNumber?: number;
+    customerNotificationSent?: boolean;
+    customerNotificationError?: string | null;
+  };
+
+  if (!result.found) {
+    await ctx.reply("Нет следующей точки маршрута.", adminMenu);
+    return;
+  }
+
+  const message = result.customerNotificationSent === false
+    ? `Заказ #${result.orderNumber}: отмечен доставленным, но уведомление клиенту не ушло. ${result.customerNotificationError ?? ""}`
+    : `Заказ #${result.orderNumber} отмечен доставленным. В сообщении заказа появилась ✅.`;
+  await ctx.reply(message, adminMenu);
+}
+
 async function sendTodayRoute(ctx: Context) {
   const route = await fetchTodayRoute();
 
@@ -450,9 +518,7 @@ async function sendOrders(ctx: Context, status: OrderStatus) {
         "",
         `К оплате: ${formatMoney(order.totalAmount)}`
       ].join("\n"),
-      Markup.inlineKeyboard([
-        [Markup.button.callback("Доставлено", `order:${order.id}:DELIVERED`)]
-      ])
+      adminMenu
     );
   }
 }
