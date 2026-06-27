@@ -38,9 +38,9 @@ const adminMenu = {
     keyboard: [
       ["Собрать заказы", "Скоро доставка"],
       ["Общий маршрут", "Статистика"],
-      ["5 мин", "10 мин", "15 мин"],
-      ["20 мин", "25 мин", "Доставлено"],
-      ["Сброс статистики"]
+      ["Сброс статистики"],
+      ["5", "10", "15", "20", "25"],
+      ["Доставлено"]
     ],
     resize_keyboard: true,
     is_persistent: true
@@ -93,7 +93,7 @@ bot.hears("Скоро доставка", async (ctx) => {
   await notifyDeliverySoon(ctx);
 });
 
-bot.hears(/^(5|10|15|20|25) мин$/, async (ctx) => {
+bot.hears(/^(5|10|15|20|25)$/, async (ctx) => {
   await notifyNextRouteEta(ctx, Number(ctx.match[1]));
 });
 
