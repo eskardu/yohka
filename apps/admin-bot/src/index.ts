@@ -25,6 +25,7 @@ type RoutePart = {
   endOrderNumber: number | null;
 };
 type TodayRoute = { url: string; sorted: RouteOrder[]; routes?: RoutePart[] };
+type DeliveryStatus = { text: string };
 type CollectOrdersResult = {
   orderCount: number;
   items: Array<{ name: string; quantity: number; unit: string }>;
@@ -342,15 +343,27 @@ async function notifyDeliverySoon(ctx: Context) {
     return;
   }
 
-  await ctx.reply(
+  const deliveryStatus = await fetchDeliveryStatusText().catch((error) => {
+    console.error("Failed to fetch delivery status", error);
+    return "";
+  });
+
+  const statusMessage = await ctx.reply(
     [
       "Уведомление о скорой доставке отправлено.",
       `Заказов в текущей партии: ${result.totalOrders}`,
       `Клиентов уведомлено: ${result.notifiedUsers}`,
-      `Ошибок отправки: ${result.failedUsers}`
+      `Ошибок отправки: ${result.failedUsers}`,
+      ...(deliveryStatus ? ["", deliveryStatus] : [])
     ].join("\n"),
     adminMenu
   );
+
+  if (deliveryStatus && ctx.chat) {
+    await registerDeliveryStatusMessage(ctx.chat.id, statusMessage.message_id).catch((error) => {
+      console.error("Failed to register delivery status message", error);
+    });
+  }
 }
 
 async function notifyNextRouteEta(ctx: Context, minutes: number) {
@@ -460,6 +473,29 @@ async function fetchTodayRoute() {
   }
 
   return response.json() as Promise<TodayRoute>;
+}
+
+async function fetchDeliveryStatusText() {
+  const response = await fetch(`${apiBaseUrl}/api/admin/delivery/status`);
+
+  if (!response.ok) {
+    throw new Error(`Delivery status request failed with status ${response.status}`);
+  }
+
+  const result = await response.json() as DeliveryStatus;
+  return result.text;
+}
+
+async function registerDeliveryStatusMessage(chatId: number, messageId: number) {
+  const response = await fetch(`${apiBaseUrl}/api/admin/delivery/list-message`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chatId, messageId })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Delivery status message register failed with status ${response.status}`);
+  }
 }
 
 async function findNextRouteOrder(orderId: string) {

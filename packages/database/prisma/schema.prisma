@@ -116,6 +116,14 @@ model AdminOrderMessage {
   @@index([orderId])
 }
 
+model AdminDeliveryListMessage {
+  id        String   @id @default(cuid())
+  chatId    BigInt   @unique
+  messageId Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model OrderItem {
   id                    String  @id @default(cuid())
   orderId               String

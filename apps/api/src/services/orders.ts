@@ -187,6 +187,9 @@ export async function updateOrderStatus(id: string, status: OrderStatus) {
     updateAdminOrderMessages(order.id, status).catch((error) => {
       console.error("Failed to update admin order message", order.queueNumber, error);
     });
+    updateDeliveryListMessages().catch((error) => {
+      console.error("Failed to update admin delivery list", order.queueNumber, error);
+    });
   }
 
   return { ...order, customerNotificationSent, customerNotificationError };
@@ -200,6 +203,7 @@ export async function markOrderInTransitForAdmin(id: string) {
   });
 
   await updateAdminOrderMessages(order.id, "ON_DELIVERY");
+  await updateDeliveryListMessages();
   return order;
 }
 
@@ -223,6 +227,7 @@ export async function notifyDeliverySoonForActiveOrders() {
   await Promise.allSettled(
     orders.map((order) => updateAdminOrderMessages(order.id, "ON_DELIVERY"))
   );
+  await updateDeliveryListMessages();
 
   const telegram = getClientTelegram();
   if (!telegram) {
@@ -292,6 +297,31 @@ export async function notifyCustomerEta(id: string, minutes: number) {
       customerNotificationError: message
     };
   }
+}
+
+export async function registerAdminDeliveryListMessage(chatId: number | string | bigint, messageId: number) {
+  await prisma.adminDeliveryListMessage.upsert({
+    where: { chatId: BigInt(chatId) },
+    update: { messageId },
+    create: { chatId: BigInt(chatId), messageId }
+  });
+}
+
+export async function getDeliveryStatusText() {
+  const orders = await prisma.order.findMany({
+    where: {
+      status: { in: ["PREPARING", "ON_DELIVERY", "DELIVERED"] },
+      routePosition: { not: null }
+    },
+    orderBy: [{ routePosition: "asc" }, { createdAt: "asc" }]
+  });
+
+  return formatDeliveryStatusText(
+    orders.map((order) => ({
+      orderNumber: order.queueNumber,
+      status: order.status
+    }))
+  );
 }
 
 export async function notifyAdmins(order: Awaited<ReturnType<typeof prisma.order.create>>) {
@@ -375,6 +405,42 @@ async function updateAdminOrderMessages(orderId: string, status: "ON_DELIVERY" |
       )
     )
   );
+}
+
+async function updateDeliveryListMessages() {
+  const telegram = getAdminTelegram();
+  if (!telegram) return;
+
+  const messages = await prisma.adminDeliveryListMessage.findMany();
+  if (!messages.length) return;
+
+  const text = await getDeliveryStatusText();
+  if (!text) return;
+
+  await Promise.allSettled(
+    messages.map((message) =>
+      telegram.editMessageText(
+        Number(message.chatId),
+        message.messageId,
+        undefined,
+        text
+      )
+    )
+  );
+}
+
+function formatDeliveryStatusText(orders: Array<{ orderNumber: number; status: OrderStatus }>) {
+  if (!orders.length) return "";
+
+  return [
+    "Статус доставки:",
+    ...orders.map((order) => {
+      const statusText = order.status === "DELIVERED"
+        ? "доставлено ✅"
+        : "в пути 🚚";
+      return `заказ ${order.orderNumber} ${statusText}`;
+    })
+  ].join("\n");
 }
 
 async function notifyCustomerAboutCreatedOrder(order: Parameters<typeof formatCustomerOrderConfirmation>[0]) {

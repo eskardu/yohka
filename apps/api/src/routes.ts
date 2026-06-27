@@ -8,7 +8,15 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { AppError } from "./errors.js";
 import { buildGoogleMapsDirectionsUrlFromSorted, sortByNearestNeighbor } from "./maps.js";
-import { createOrder, markOrderInTransitForAdmin, notifyCustomerEta, notifyDeliverySoonForActiveOrders, updateOrderStatus } from "./services/orders.js";
+import {
+  createOrder,
+  getDeliveryStatusText,
+  markOrderInTransitForAdmin,
+  notifyCustomerEta,
+  notifyDeliverySoonForActiveOrders,
+  registerAdminDeliveryListMessage,
+  updateOrderStatus
+} from "./services/orders.js";
 
 export const router = Router();
 
@@ -68,6 +76,11 @@ const etaNotificationSchema = z.object({
   minutes: z.number().refine((value) => [5, 10, 15, 20, 25].includes(value), {
     message: "ETA must be 5, 10, 15, 20, or 25 minutes"
   })
+});
+
+const deliveryListMessageSchema = z.object({
+  chatId: z.union([z.number(), z.string()]),
+  messageId: z.number().int().positive()
 });
 
 const imageTypes = new Map([
@@ -193,6 +206,17 @@ router.post("/api/orders/notify-delivery-soon", asyncRoute(async (_request, resp
   response.json(result);
 }));
 
+router.get("/api/admin/delivery/status", asyncRoute(async (_request, response) => {
+  const text = await getDeliveryStatusText();
+  response.json({ text });
+}));
+
+router.post("/api/admin/delivery/list-message", asyncRoute(async (request, response) => {
+  const body = deliveryListMessageSchema.parse(request.body);
+  await registerAdminDeliveryListMessage(body.chatId, body.messageId);
+  response.status(204).send();
+}));
+
 router.post("/api/admin/orders/collect", asyncRoute(async (_request, response) => {
   const orders = await prisma.order.findMany({
     where: { status: "NEW" },
@@ -207,6 +231,14 @@ router.post("/api/admin/orders/collect", asyncRoute(async (_request, response) =
     response.json({ orderCount: 0, items: [], orders: [] });
     return;
   }
+
+  await prisma.order.updateMany({
+    where: {
+      status: { in: ["DELIVERED", "CANCELLED"] },
+      routePosition: { not: null }
+    },
+    data: { routePosition: null }
+  });
 
   const points = orders.map((order) => ({
     id: order.id,
