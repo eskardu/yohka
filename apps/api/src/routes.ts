@@ -11,6 +11,7 @@ import { buildGoogleMapsDirectionsUrlFromSorted, sortByNearestNeighbor } from ".
 import {
   createOrder,
   getDeliveryStatusText,
+  markDeliveredOrdersBeforeRoutePositionPickedUp,
   markOrderInTransitForAdmin,
   notifyCustomerEta,
   notifyDeliverySoonForActiveOrders,
@@ -281,8 +282,11 @@ router.post("/api/admin/orders/collect", asyncRoute(async (_request, response) =
     orders: [...orders].sort((a, b) => (routePositions.get(a.id) ?? 0) - (routePositions.get(b.id) ?? 0)).map((order) => ({
       id: order.id,
       orderNumber: order.queueNumber,
-      username: order.user.username,
-      totalAmount: order.totalAmount
+      items: order.items.map((item) => ({
+        name: item.productNameSnapshot,
+        quantity: Number(item.quantity),
+        unit: item.product.unit
+      }))
     }))
   });
 }));
@@ -304,6 +308,7 @@ router.post("/api/admin/route/next/eta", asyncRoute(async (request, response) =>
   }
 
   const result = await notifyCustomerEta(order.id, body.minutes);
+  await markDeliveredOrdersBeforeRoutePositionPickedUp(order.routePosition);
   await markOrderInTransitForAdmin(order.id);
   response.json({
     found: true,
@@ -525,11 +530,12 @@ async function findNextRouteOrder() {
 
   return order
     ? {
-      id: order.id,
-      orderNumber: order.queueNumber,
-      latitude: Number(order.latitude),
-      longitude: Number(order.longitude)
-    }
+        id: order.id,
+        orderNumber: order.queueNumber,
+        routePosition: order.routePosition ?? 0,
+        latitude: Number(order.latitude),
+        longitude: Number(order.longitude)
+      }
     : null;
 }
 

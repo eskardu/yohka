@@ -29,7 +29,11 @@ type DeliveryStatus = { text: string };
 type CollectOrdersResult = {
   orderCount: number;
   items: Array<{ name: string; quantity: number; unit: string }>;
-  orders: Array<{ id: string; orderNumber: number; username?: string | null; totalAmount: string }>;
+  orders: Array<{
+    id: string;
+    orderNumber: number;
+    items: Array<{ name: string; quantity: number; unit: string }>;
+  }>;
 };
 
 const etaMinutes = [5, 10, 15, 20, 25] as const;
@@ -300,21 +304,20 @@ async function collectOrders(ctx: Context) {
     .join("\n");
 
   const orders = result.orders
-    .map((order) => {
-      const username = order.username ? `@${order.username}` : "без username";
-      return `#${order.orderNumber} ${username} - ${formatMoney(order.totalAmount)}`;
-    })
-    .join("\n");
+    .map((order) => [
+      `Заказ #${order.orderNumber}`,
+      ...order.items.map((item) => `${item.name} ${formatQuantity(item.quantity)} ${formatUnit(item.unit)}`)
+    ].join("\n"))
+    .join("\n\n");
 
   await ctx.reply(
     [
       `Собрано заказов: ${result.orderCount}`,
       "",
-      "Список товаров:",
-      items,
-      "",
-      "Заказы в партии:",
       orders,
+      "",
+      "Общий список товаров:",
+      items,
       "",
       "Новые заказы после этого снова начнутся с #1."
     ].join("\n"),

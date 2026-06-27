@@ -207,6 +207,19 @@ export async function markOrderInTransitForAdmin(id: string) {
   return order;
 }
 
+export async function markDeliveredOrdersBeforeRoutePositionPickedUp(routePosition: number) {
+  await prisma.order.updateMany({
+    where: {
+      status: "DELIVERED",
+      routePosition: { lt: routePosition },
+      pickedUpAt: null
+    },
+    data: { pickedUpAt: new Date() }
+  });
+
+  await updateDeliveryListMessages();
+}
+
 export async function notifyDeliverySoonForActiveOrders() {
   const orders = await prisma.order.findMany({
     where: {
@@ -313,15 +326,20 @@ export async function getDeliveryStatusText() {
       status: { in: ["PREPARING", "ON_DELIVERY", "DELIVERED"] },
       routePosition: { not: null }
     },
+    include: { user: true },
     orderBy: [{ routePosition: "asc" }, { createdAt: "asc" }]
   });
 
   return formatDeliveryStatusText(
     orders.map((order) => ({
       orderNumber: order.queueNumber,
-      status: order.status
-    }))
-  );
+      status: order.status,
+        username: order.user.username,
+        contact: order.customerPhone,
+        pickedUpAt: order.pickedUpAt,
+        totalAmount: order.totalAmount.toString()
+      }))
+    );
 }
 
 export async function notifyAdmins(order: Awaited<ReturnType<typeof prisma.order.create>>) {
@@ -429,17 +447,39 @@ async function updateDeliveryListMessages() {
   );
 }
 
-function formatDeliveryStatusText(orders: Array<{ orderNumber: number; status: OrderStatus }>) {
+function formatDeliveryStatusText(
+  orders: Array<{
+    orderNumber: number;
+    status: OrderStatus;
+    username?: string | null;
+    contact?: string | null;
+    pickedUpAt?: Date | null;
+    totalAmount: string;
+  }>
+) {
   if (!orders.length) return "";
 
+  const total = orders.reduce((sum, order) => sum + Number(order.totalAmount), 0);
+
   return [
-    "Статус доставки:",
-    ...orders.map((order) => {
-      const statusText = order.status === "DELIVERED"
-        ? "доставлено ✅"
-        : "в пути 🚚";
-      return `заказ ${order.orderNumber} ${statusText}`;
-    })
+      "Статус доставки:",
+      ...orders.map((order) => {
+        if (order.status === "DELIVERED") {
+          if (order.pickedUpAt) {
+            return `заказ #${order.orderNumber} доставлено ✅ ${formatMoney(order.totalAmount)}`;
+          }
+
+          const username = order.username ? ` @${order.username}` : "";
+          const contact = order.contact && order.contact !== "не указан" ? ` (${order.contact})` : "";
+          return `заказ #${order.orderNumber} доставлено ✅${username}${contact} - к оплате ${formatMoney(order.totalAmount)}`;
+        }
+
+      const username = order.username ? ` @${order.username}` : "";
+      const contact = order.contact && order.contact !== "не указан" ? ` (${order.contact})` : "";
+      return `заказ #${order.orderNumber} в пути 🚚${username}${contact} - к оплате ${formatMoney(order.totalAmount)}`;
+    }),
+    "",
+    `Общая сумма: ${formatMoney(total)}`
   ].join("\n");
 }
 
