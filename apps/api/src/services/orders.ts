@@ -21,6 +21,52 @@ function calculateDeliveryFee(subtotal: number, totalKg: number) {
   return config.deliveryFee;
 }
 
+function buildOrderItemData(
+  items: Array<{ productId: string; quantity: number }>,
+  productsById: Map<string, Awaited<ReturnType<typeof prisma.product.findMany>>[number]>
+) {
+  let subtotal = 0;
+  let totalProfit = 0;
+  let totalKg = 0;
+
+  const orderItems = items.map((item) => {
+    if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+      throw new AppError("Quantity must be positive");
+    }
+
+    const product = productsById.get(item.productId);
+    if (!product) throw new AppError("Product is unavailable", 404);
+
+    const salePrice = Number(product.discountPrice ?? product.salePrice);
+    const purchasePrice = Number(product.purchasePrice);
+    const totalPrice = item.quantity * salePrice;
+    const profit = item.quantity * (salePrice - purchasePrice);
+
+    subtotal += totalPrice;
+    totalProfit += profit;
+    if (product.unit === "kg") totalKg += item.quantity;
+
+    return {
+      productId: product.id,
+      productNameSnapshot: product.name,
+      purchasePriceSnapshot: decimal(purchasePrice),
+      salePriceSnapshot: decimal(salePrice),
+      quantity: new Prisma.Decimal(item.quantity),
+      totalPrice: decimal(totalPrice),
+      profit: decimal(profit)
+    };
+  });
+
+  const deliveryFee = calculateDeliveryFee(subtotal, totalKg);
+
+  return {
+    orderItems,
+    totalAmount: subtotal + deliveryFee,
+    profitAmount: totalProfit - deliveryFee,
+    deliveryFee
+  };
+}
+
 export async function createOrder(input: CheckoutInput) {
   const validatedTelegramUser = validateTelegramInitData(input.initData, config.botTokenClient);
   const fallbackTelegramUser = validateTelegramFallbackData(input.telegramFallback, config.botTokenClient);
@@ -48,44 +94,15 @@ export async function createOrder(input: CheckoutInput) {
   });
   const productsById = new Map(products.map((product) => [product.id, product]));
 
-  let subtotal = 0;
-  let totalProfit = 0;
-  let totalKg = 0;
-
-  const orderItems = input.items.map((item) => {
-    if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
-      throw new AppError("Quantity must be positive");
-    }
-
+  for (const item of input.items) {
     const product = productsById.get(item.productId);
     if (!product) throw new AppError("Product is unavailable", 404);
     if (Number(product.stockQuantity) < item.quantity) {
       throw new AppError(`Not enough stock for ${product.name}`);
     }
+  }
 
-    const salePrice = Number(product.discountPrice ?? product.salePrice);
-    const purchasePrice = Number(product.purchasePrice);
-    const totalPrice = item.quantity * salePrice;
-    const profit = item.quantity * (salePrice - purchasePrice);
-
-    subtotal += totalPrice;
-    totalProfit += profit;
-    if (product.unit === "kg") totalKg += item.quantity;
-
-    return {
-      productId: product.id,
-      productNameSnapshot: product.name,
-      purchasePriceSnapshot: decimal(purchasePrice),
-      salePriceSnapshot: decimal(salePrice),
-      quantity: new Prisma.Decimal(item.quantity),
-      totalPrice: decimal(totalPrice),
-      profit: decimal(profit)
-    };
-  });
-
-  const deliveryFee = calculateDeliveryFee(subtotal, totalKg);
-  const totalAmount = subtotal + deliveryFee;
-  const profitAmount = totalProfit - deliveryFee;
+  const { orderItems, totalAmount, profitAmount, deliveryFee } = buildOrderItemData(input.items, productsById);
 
   const order = await prisma.$transaction(async (tx) => {
     const user = await tx.user.upsert({
@@ -148,14 +165,136 @@ export async function createOrder(input: CheckoutInput) {
   return order;
 }
 
+export async function updateOrderDetails(
+  id: string,
+  input: {
+    customerPhone?: string;
+    customerComment?: string | null;
+    items: Array<{ productId: string; quantity: number }>;
+  }
+) {
+  if (!input.items.length) {
+    throw new AppError("Order must contain at least one item");
+  }
+
+  const productIds = [...new Set(input.items.map((item) => item.productId))];
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds }, isActive: true }
+  });
+  const productsById = new Map(products.map((product) => [product.id, product]));
+
+  const order = await prisma.$transaction(async (tx) => {
+    const current = await tx.order.findUnique({
+      where: { id },
+      include: { items: true }
+    });
+
+    if (!current) {
+      throw new AppError("Order not found", 404);
+    }
+
+    if (current.status === "DELIVERED" || current.status === "CANCELLED") {
+      throw new AppError("Delivered or cancelled order cannot be edited");
+    }
+
+    const currentQuantities = new Map(
+      current.items.map((item) => [item.productId, Number(item.quantity)])
+    );
+    const nextQuantities = new Map<string, number>();
+    for (const item of input.items) {
+      nextQuantities.set(item.productId, (nextQuantities.get(item.productId) ?? 0) + item.quantity);
+    }
+
+    for (const [productId, quantity] of nextQuantities) {
+      const product = productsById.get(productId);
+      if (!product) throw new AppError("Product is unavailable", 404);
+
+      const delta = quantity - (currentQuantities.get(productId) ?? 0);
+      if (delta > 0 && Number(product.stockQuantity) < delta) {
+        throw new AppError(`Not enough stock for ${product.name}`);
+      }
+    }
+
+    for (const item of current.items) {
+      if (!nextQuantities.has(item.productId)) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { stockQuantity: { increment: item.quantity } }
+        });
+      }
+    }
+
+    for (const [productId, quantity] of nextQuantities) {
+      const delta = quantity - (currentQuantities.get(productId) ?? 0);
+      if (delta === 0) continue;
+
+      await tx.product.update({
+        where: { id: productId },
+        data: {
+          stockQuantity: delta > 0
+            ? { decrement: delta }
+            : { increment: Math.abs(delta) }
+        }
+      });
+    }
+
+    const { orderItems, totalAmount, profitAmount, deliveryFee } = buildOrderItemData(input.items, productsById);
+
+    await tx.orderItem.deleteMany({ where: { orderId: id } });
+
+    return tx.order.update({
+      where: { id },
+      data: {
+        customerPhone: input.customerPhone?.trim() ?? current.customerPhone,
+        customerComment: input.customerComment?.trim() || null,
+        totalAmount: decimal(totalAmount),
+        profitAmount: decimal(profitAmount),
+        deliveryFee: decimal(deliveryFee),
+        items: { create: orderItems }
+      },
+      include: { user: true, items: { include: { product: true } } }
+    });
+  });
+
+  await updateAdminOrderMessages(order.id, order.status);
+  await updateDeliveryListMessages();
+  return order;
+}
+
 export async function updateOrderStatus(id: string, status: OrderStatus) {
-  const order = await prisma.order.update({
-    where: { id },
-    data: {
-      status,
-      deliveredAt: status === "DELIVERED" ? new Date() : null
-    },
-    include: { user: true, items: true }
+  const order = await prisma.$transaction(async (tx) => {
+    const current = await tx.order.findUnique({
+      where: { id },
+      include: { items: true }
+    });
+
+    if (!current) {
+      throw new AppError("Order not found", 404);
+    }
+
+    if (status === "CANCELLED" && current.status !== "CANCELLED") {
+      await Promise.all(
+        current.items.map((item) =>
+          tx.product.update({
+            where: { id: item.productId },
+            data: { stockQuantity: { increment: item.quantity } }
+          })
+        )
+      );
+    }
+
+    const clearsRoute = status === "NEW" || status === "WAITING_STOCK" || status === "CANCELLED";
+
+    return tx.order.update({
+      where: { id },
+      data: {
+        status,
+        deliveredAt: status === "DELIVERED" ? new Date() : null,
+        pickedUpAt: status === "DELIVERED" ? undefined : null,
+        routePosition: clearsRoute ? null : undefined
+      },
+      include: { user: true, items: { include: { product: true } } }
+    });
   });
 
   let customerNotificationSent: boolean | null = null;
@@ -183,9 +322,10 @@ export async function updateOrderStatus(id: string, status: OrderStatus) {
     }
   }
 
-  if (status === "ON_DELIVERY" || status === "DELIVERED") {
+  await updateAdminOrderMessages(order.id, status);
+
+  if (status === "ON_DELIVERY" || status === "DELIVERED" || status === "WAITING_STOCK" || status === "CANCELLED" || status === "NEW") {
     await Promise.allSettled([
-      updateAdminOrderMessages(order.id, status),
       updateDeliveryListMessages()
     ]);
   }
@@ -353,26 +493,11 @@ export async function notifyAdmins(order: Awaited<ReturnType<typeof prisma.order
   if (!telegram || config.adminTelegramIds.length === 0) return;
 
   const text = formatOrderMessage(order as Parameters<typeof formatOrderMessage>[0]);
-  const keyboard = {
-    inline_keyboard: [
-      [
-        {
-          text: "Доставлено",
-          callback_data: `order:${order.id}:DELIVERED`
-        }
-      ],
-      [
-        {
-          text: "Открыть маршрут",
-          url: `https://www.google.com/maps/search/?api=1&query=${order.latitude},${order.longitude}`
-        }
-      ]
-    ]
-  };
+  const keyboard = buildAdminOrderKeyboard(order.id, order.status, `${order.latitude}`, `${order.longitude}`);
 
   const results = await Promise.allSettled(
     config.adminTelegramIds.map((chatId) =>
-      telegram.sendMessage(chatId, text, { parse_mode: "HTML" })
+      telegram.sendMessage(chatId, text, { parse_mode: "HTML", reply_markup: keyboard })
     )
   );
 
@@ -398,7 +523,7 @@ export async function notifyAdmins(order: Awaited<ReturnType<typeof prisma.order
   }
 }
 
-async function updateAdminOrderMessages(orderId: string, status: "ON_DELIVERY" | "DELIVERED") {
+async function updateAdminOrderMessages(orderId: string, status: OrderStatus) {
   const telegram = getAdminTelegram();
   if (!telegram) return;
 
@@ -413,9 +538,14 @@ async function updateAdminOrderMessages(orderId: string, status: "ON_DELIVERY" |
 
   if (!order || !order.adminMessages.length) return;
 
-  const statusLine = status === "ON_DELIVERY"
-    ? "\n\n<b>🚚 В пути</b>"
-    : "\n\n<b>✅ Доставлено</b>";
+  const statusLabels: Partial<Record<OrderStatus, string>> = {
+    NEW: "↩️ Вернут в новые заказы",
+    ON_DELIVERY: "🚚 В пути",
+    DELIVERED: "✅ Доставлено",
+    WAITING_STOCK: "⏳ Ожидает товар",
+    CANCELLED: "❌ Отменен"
+  };
+  const statusLine = statusLabels[status] ? `\n\n<b>${statusLabels[status]}</b>` : "";
   const text = `${formatOrderMessage(order)}${statusLine}`;
 
   await Promise.allSettled(
@@ -425,10 +555,53 @@ async function updateAdminOrderMessages(orderId: string, status: "ON_DELIVERY" |
         message.messageId,
         undefined,
         text,
-        { parse_mode: "HTML" }
+        { parse_mode: "HTML", reply_markup: buildAdminOrderKeyboard(order.id, status, `${order.latitude}`, `${order.longitude}`) }
       )
     )
   );
+}
+
+function buildAdminOrderKeyboard(orderId: string, status: OrderStatus, latitude: string, longitude: string) {
+  if (status === "WAITING_STOCK") {
+    return {
+      inline_keyboard: [
+        [
+          { text: "Вернуть в заказы", callback_data: `order:${orderId}:NEW` },
+          { text: "❌ Отменить", callback_data: `order:${orderId}:CANCELLED` }
+        ]
+      ]
+    };
+  }
+
+  if (status === "DELIVERED") {
+    return {
+      inline_keyboard: [[{ text: "✅ Доставлено", callback_data: `order:${orderId}:DONE` }]]
+    };
+  }
+
+  if (status === "CANCELLED") {
+    return {
+      inline_keyboard: [[{ text: "❌ Отменен", callback_data: `order:${orderId}:DONE` }]]
+    };
+  }
+
+  return {
+    inline_keyboard: [
+      [
+        { text: "⏳ Ожидает товар", callback_data: `order:${orderId}:WAITING_STOCK` },
+        { text: "❌ Отменить", callback_data: `order:${orderId}:CANCELLED` }
+      ],
+      [
+        { text: "Доставлено", callback_data: `order:${orderId}:DELIVERED` }
+      ],
+      [
+        {
+          text: "Открыть маршрут",
+          url: `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`
+        }
+      ]
+    ]
+  };
 }
 
 async function updateDeliveryListMessages() {

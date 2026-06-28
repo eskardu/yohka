@@ -44,7 +44,8 @@ const adminMenu = {
   reply_markup: {
     keyboard: [
       ["Собрать заказы", "Скоро доставка"],
-      ["Общий маршрут", "Статистика"],
+      ["Общий маршрут", "Ожидают товар"],
+      ["Статистика"],
       ["Сброс статистики"],
       ["5", "10", "15", "20", "25"],
       ["Доставлено"]
@@ -112,6 +113,10 @@ bot.hears("Общий маршрут", async (ctx) => {
   await sendTodayRoute(ctx);
 });
 
+bot.hears("Ожидают товар", async (ctx) => {
+  await sendOrders(ctx, "WAITING_STOCK");
+});
+
 bot.hears("Статистика", async (ctx) => {
   await showStatsMenu(ctx);
 });
@@ -131,6 +136,10 @@ bot.action("orders:new", async (ctx) => {
 bot.action("orders:delivery", async (ctx) => {
   await ctx.answerCbQuery();
   await sendOrders(ctx, "ON_DELIVERY");
+});
+
+bot.action(/^order:.+:DONE$/, async (ctx) => {
+  await ctx.answerCbQuery("Готово");
 });
 
 bot.action("orders:notify-soon", async (ctx) => {
@@ -197,7 +206,7 @@ bot.action(/^eta:(.+):(5|10|15|20|25)$/, async (ctx) => {
   await ctx.editMessageText(message);
 });
 
-bot.action(/^order:(.+):(ON_DELIVERY|DELIVERED|CANCELLED)$/, async (ctx) => {
+bot.action(/^order:(.+):(NEW|ON_DELIVERY|DELIVERED|WAITING_STOCK|CANCELLED)$/, async (ctx) => {
   const [, orderId, status] = ctx.match;
   const nextRouteOrder = status === "DELIVERED"
     ? await findNextRouteOrder(orderId).catch((error) => {
@@ -251,6 +260,34 @@ bot.action(/^order:(.+):(ON_DELIVERY|DELIVERED|CANCELLED)$/, async (ctx) => {
     return;
   }
 
+  if (status === "WAITING_STOCK") {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [
+          {
+            text: "Вернуть в заказы",
+            callback_data: `order:${orderId}:NEW`
+          },
+          {
+            text: "Отменить",
+            callback_data: `order:${orderId}:CANCELLED`
+          }
+        ]
+      ]
+    });
+    await ctx.reply(`Заказ #${order.orderNumber}: ожидает товар. В маршрут не попадет.`, adminMenu);
+    await refreshDeliveryStatusMessage(ctx);
+    return;
+  }
+
+  if (status === "NEW") {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: buildOrderActions(orderId, "NEW").inline_keyboard
+    });
+    await ctx.reply(`Заказ #${order.orderNumber}: возвращен в новые заказы.`, adminMenu);
+    return;
+  }
+
   if (status === "ON_DELIVERY") {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
@@ -270,6 +307,7 @@ bot.action(/^order:(.+):(ON_DELIVERY|DELIVERED|CANCELLED)$/, async (ctx) => {
   }
 
   await ctx.reply(`Заказ #${order.orderNumber}: отменен.`, adminMenu);
+  await refreshDeliveryStatusMessage(ctx);
 });
 
 bot.command("route", async (ctx) => {
@@ -617,9 +655,38 @@ async function sendOrders(ctx: Context, status: OrderStatus) {
         "",
         `К оплате: ${formatMoney(order.totalAmount)}`
       ].join("\n"),
-      adminMenu
+      Markup.inlineKeyboard(buildOrderActions(order.id, status).inline_keyboard)
     );
   }
+}
+
+function buildOrderActions(orderId: string, status: OrderStatus) {
+  if (status === "WAITING_STOCK") {
+    return {
+      inline_keyboard: [
+        [
+          { text: "Вернуть в заказы", callback_data: `order:${orderId}:NEW` },
+          { text: "Отменить", callback_data: `order:${orderId}:CANCELLED` }
+        ]
+      ]
+    };
+  }
+
+  if (status === "CANCELLED" || status === "DELIVERED") {
+    return { inline_keyboard: [] };
+  }
+
+  return {
+    inline_keyboard: [
+      [
+        { text: "Ожидает товар", callback_data: `order:${orderId}:WAITING_STOCK` },
+        { text: "Отменить", callback_data: `order:${orderId}:CANCELLED` }
+      ],
+      [
+        { text: "Доставлено", callback_data: `order:${orderId}:DELIVERED` }
+      ]
+    ]
+  };
 }
 
 async function sendStats(ctx: Context, period: StatPeriod) {

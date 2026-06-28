@@ -17,6 +17,7 @@ import {
   notifyCustomerEta,
   notifyDeliverySoonForActiveOrders,
   registerAdminDeliveryListMessage,
+  updateOrderDetails,
   updateOrderStatus
 } from "./services/orders.js";
 
@@ -55,6 +56,12 @@ const checkoutSchema = z.object({
   longitude: z.number().min(-180).max(180),
   paymentMethod: z.nativeEnum(PaymentMethod),
   deliveryDay: z.string().optional(),
+  items: z.array(z.object({ productId: z.string(), quantity: z.number().positive() })).min(1)
+});
+
+const adminOrderUpdateSchema = z.object({
+  customerPhone: z.string().optional(),
+  customerComment: z.string().nullable().optional(),
   items: z.array(z.object({ productId: z.string(), quantity: z.number().positive() })).min(1)
 });
 
@@ -350,6 +357,16 @@ router.patch("/api/orders/:id/status", asyncRoute(async (request, response) => {
   const orderId = z.string().parse(request.params.id);
   const body = z.object({ status: z.nativeEnum(OrderStatus) }).parse(request.body);
   const order = await updateOrderStatus(orderId, body.status);
+  response.json({
+    ...order,
+    systemOrderNumber: order.orderNumber,
+    orderNumber: order.queueNumber
+  });
+}));
+
+router.patch("/api/admin/orders/:id", asyncRoute(async (request, response) => {
+  const orderId = z.string().parse(request.params.id);
+  const order = await updateOrderDetails(orderId, adminOrderUpdateSchema.parse(request.body));
   response.json({
     ...order,
     systemOrderNumber: order.orderNumber,
